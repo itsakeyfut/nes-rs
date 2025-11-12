@@ -711,9 +711,9 @@ mod tests {
         // Base $40 + X(5) = $45
         // Pointer at $45 contains address $0634
         let bus = create_test_bus(&[
-            (0x0200, 0x40),   // Base zero page address
-            (0x0045, 0x34),   // Target address low byte
-            (0x0046, 0x06),   // Target address high byte
+            (0x0200, 0x40), // Base zero page address
+            (0x0045, 0x34), // Target address low byte
+            (0x0046, 0x06), // Target address high byte
         ]);
         let result = cpu.addr_indexed_indirect(&bus);
 
@@ -729,9 +729,9 @@ mod tests {
 
         // Base $FF + X(16) = $0F (wraps within zero page)
         let bus = create_test_bus(&[
-            (0x0200, 0xFF),   // Base zero page address
-            (0x000F, 0x34),   // Target address low byte
-            (0x0010, 0x06),   // Target address high byte
+            (0x0200, 0xFF), // Base zero page address
+            (0x000F, 0x34), // Target address low byte
+            (0x0010, 0x06), // Target address high byte
         ]);
         let result = cpu.addr_indexed_indirect(&bus);
 
@@ -746,9 +746,9 @@ mod tests {
 
         // Pointer at $FF should read high byte from $00 (wraps within zero page)
         let bus = create_test_bus(&[
-            (0x0200, 0xFF),   // Base zero page address
-            (0x00FF, 0x34),   // Target address low byte
-            (0x0000, 0x06),   // Target address high byte (wraps to $00)
+            (0x0200, 0xFF), // Base zero page address
+            (0x00FF, 0x34), // Target address low byte
+            (0x0000, 0x06), // Target address high byte (wraps to $00)
         ]);
         let result = cpu.addr_indexed_indirect(&bus);
 
@@ -768,9 +768,9 @@ mod tests {
         // Pointer at $40 contains $0434
         // $0434 + Y(5) = $0439
         let bus = create_test_bus(&[
-            (0x0200, 0x40),   // Zero page pointer address
-            (0x0040, 0x34),   // Base address low byte
-            (0x0041, 0x04),   // Base address high byte
+            (0x0200, 0x40), // Zero page pointer address
+            (0x0040, 0x34), // Base address low byte
+            (0x0041, 0x04), // Base address high byte
         ]);
         let result = cpu.addr_indirect_indexed(&bus);
 
@@ -788,9 +788,9 @@ mod tests {
         // Pointer at $40 contains $04FF
         // $04FF + Y(16) = $050F (crosses page boundary)
         let bus = create_test_bus(&[
-            (0x0200, 0x40),   // Zero page pointer address
-            (0x0040, 0xFF),   // Base address low byte
-            (0x0041, 0x04),   // Base address high byte
+            (0x0200, 0x40), // Zero page pointer address
+            (0x0040, 0xFF), // Base address low byte
+            (0x0041, 0x04), // Base address high byte
         ]);
         let result = cpu.addr_indirect_indexed(&bus);
 
@@ -806,9 +806,9 @@ mod tests {
 
         // Pointer at $FF should read high byte from $00 (wraps within zero page)
         let bus = create_test_bus(&[
-            (0x0200, 0xFF),   // Zero page pointer address
-            (0x00FF, 0x34),   // Base address low byte
-            (0x0000, 0x04),   // Base address high byte (wraps to $00)
+            (0x0200, 0xFF), // Zero page pointer address
+            (0x00FF, 0x34), // Base address low byte
+            (0x0000, 0x04), // Base address high byte (wraps to $00)
         ]);
         let result = cpu.addr_indirect_indexed(&bus);
 

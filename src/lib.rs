@@ -2,20 +2,20 @@
 // Core library for the NES emulator implementation
 
 // Public modules
-pub mod cpu;
-pub mod ppu;
 pub mod apu;
 pub mod bus;
 pub mod cartridge;
+pub mod cpu;
 pub mod input;
+pub mod ppu;
 
 // Re-export main types for convenience
-pub use cpu::Cpu;
-pub use ppu::Ppu;
 pub use apu::Apu;
 pub use bus::Bus;
 pub use cartridge::Cartridge;
+pub use cpu::Cpu;
 pub use input::Controller;
+pub use ppu::Ppu;
 
 #[cfg(test)]
 mod tests {

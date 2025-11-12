@@ -285,7 +285,10 @@ mod tests {
         assert_eq!(cpu.a, 0b1000_0000);
         assert!(!cpu.get_carry(), "Carry should be clear (bit 7 was 0)");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
-        assert!(cpu.get_negative(), "Negative flag should be set (bit 7 is 1)");
+        assert!(
+            cpu.get_negative(),
+            "Negative flag should be set (bit 7 is 1)"
+        );
     }
 
     #[test]
@@ -299,7 +302,11 @@ mod tests {
         let addr_result = AddressingResult::new(addr);
         cpu.asl(&mut bus, &addr_result, false);
 
-        assert_eq!(bus.read(addr), 0b0000_0100, "Memory value should be shifted");
+        assert_eq!(
+            bus.read(addr),
+            0b0000_0100,
+            "Memory value should be shifted"
+        );
         assert!(!cpu.get_carry(), "Carry should be clear");
     }
 
@@ -380,7 +387,10 @@ mod tests {
         assert_eq!(cpu.a, 0b0100_0000);
         assert!(!cpu.get_carry(), "Carry should be clear (bit 0 was 0)");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
-        assert!(!cpu.get_negative(), "Negative flag should be clear (bit 7 is 0)");
+        assert!(
+            !cpu.get_negative(),
+            "Negative flag should be clear (bit 7 is 0)"
+        );
     }
 
     #[test]
@@ -394,7 +404,11 @@ mod tests {
         let addr_result = AddressingResult::new(addr);
         cpu.lsr(&mut bus, &addr_result, false);
 
-        assert_eq!(bus.read(addr), 0b0000_0010, "Memory value should be shifted");
+        assert_eq!(
+            bus.read(addr),
+            0b0000_0010,
+            "Memory value should be shifted"
+        );
         assert!(!cpu.get_carry(), "Carry should be clear");
     }
 
@@ -540,7 +554,10 @@ mod tests {
 
         assert_eq!(cpu.a, 0b1000_0010, "Old carry should be rotated into bit 7");
         assert!(!cpu.get_carry(), "Carry should be clear (bit 0 was 0)");
-        assert!(cpu.get_negative(), "Negative flag should be set (bit 7 is 1)");
+        assert!(
+            cpu.get_negative(),
+            "Negative flag should be set (bit 7 is 1)"
+        );
     }
 
     #[test]

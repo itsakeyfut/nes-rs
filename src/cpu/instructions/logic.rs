@@ -151,12 +151,14 @@ mod tests {
         cpu.and(&bus, &addr_result);
 
         assert_eq!(
-            cpu.a,
-            0b1010_0000,
+            cpu.a, 0b1010_0000,
             "0b1111_0000 AND 0b1010_1010 should equal 0b1010_0000"
         );
         assert!(!cpu.get_zero(), "Zero flag should be clear");
-        assert!(cpu.get_negative(), "Negative flag should be set (bit 7 is 1)");
+        assert!(
+            cpu.get_negative(),
+            "Negative flag should be set (bit 7 is 1)"
+        );
     }
 
     #[test]
@@ -168,10 +170,7 @@ mod tests {
         let addr_result = AddressingResult::immediate(0b1111_0000);
         cpu.and(&bus, &addr_result);
 
-        assert_eq!(
-            cpu.a, 0x00,
-            "0b0000_1111 AND 0b1111_0000 should equal 0x00"
-        );
+        assert_eq!(cpu.a, 0x00, "0b0000_1111 AND 0b1111_0000 should equal 0x00");
         assert!(cpu.get_zero(), "Zero flag should be set");
         assert!(!cpu.get_negative(), "Negative flag should be clear");
     }
@@ -233,12 +232,14 @@ mod tests {
         cpu.ora(&bus, &addr_result);
 
         assert_eq!(
-            cpu.a,
-            0b1111_1111,
+            cpu.a, 0b1111_1111,
             "0b1111_0000 OR 0b0000_1111 should equal 0b1111_1111"
         );
         assert!(!cpu.get_zero(), "Zero flag should be clear");
-        assert!(cpu.get_negative(), "Negative flag should be set (bit 7 is 1)");
+        assert!(
+            cpu.get_negative(),
+            "Negative flag should be set (bit 7 is 1)"
+        );
     }
 
     #[test]
@@ -326,8 +327,7 @@ mod tests {
         cpu.eor(&bus, &addr_result);
 
         assert_eq!(
-            cpu.a,
-            0b0101_1010,
+            cpu.a, 0b0101_1010,
             "0b1111_0000 XOR 0b1010_1010 should equal 0b0101_1010"
         );
         assert!(!cpu.get_zero(), "Zero flag should be clear");
@@ -422,10 +422,7 @@ mod tests {
         let addr_result = AddressingResult::immediate(0b1010_1010);
         cpu.bit(&bus, &addr_result);
 
-        assert!(
-            !cpu.get_zero(),
-            "Zero flag should be clear (A & M != 0)"
-        );
+        assert!(!cpu.get_zero(), "Zero flag should be clear (A & M != 0)");
         assert!(
             cpu.get_negative(),
             "Negative flag should be set (bit 7 of M is 1)"
@@ -467,10 +464,7 @@ mod tests {
         let addr_result = AddressingResult::immediate(0b1100_0000); // Bits 7 and 6 set
         cpu.bit(&bus, &addr_result);
 
-        assert!(
-            !cpu.get_zero(),
-            "Zero flag should be clear (A & M != 0)"
-        );
+        assert!(!cpu.get_zero(), "Zero flag should be clear (A & M != 0)");
         assert!(
             cpu.get_negative(),
             "Negative flag should be set (bit 7 of memory is 1)"
@@ -504,10 +498,7 @@ mod tests {
         let addr_result = AddressingResult::immediate(0b0011_1111);
         cpu.bit(&bus, &addr_result);
 
-        assert!(
-            !cpu.get_zero(),
-            "Zero flag should be clear (A & M != 0)"
-        );
+        assert!(!cpu.get_zero(), "Zero flag should be clear (A & M != 0)");
         assert!(
             !cpu.get_negative(),
             "Negative flag should be clear (bit 7 of M is 0)"
@@ -528,10 +519,7 @@ mod tests {
         let addr_result = AddressingResult::immediate(0b1000_0000);
         cpu.bit(&bus, &addr_result);
 
-        assert!(
-            !cpu.get_zero(),
-            "Zero flag should be clear (A & M != 0)"
-        );
+        assert!(!cpu.get_zero(), "Zero flag should be clear (A & M != 0)");
         assert!(
             cpu.get_negative(),
             "Negative flag should be set (bit 7 of M is 1)"
@@ -552,10 +540,7 @@ mod tests {
         let addr_result = AddressingResult::immediate(0b0100_0000);
         cpu.bit(&bus, &addr_result);
 
-        assert!(
-            !cpu.get_zero(),
-            "Zero flag should be clear (A & M != 0)"
-        );
+        assert!(!cpu.get_zero(), "Zero flag should be clear (A & M != 0)");
         assert!(
             !cpu.get_negative(),
             "Negative flag should be clear (bit 7 of M is 0)"
