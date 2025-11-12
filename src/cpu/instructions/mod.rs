@@ -2,6 +2,7 @@
 // This module organizes CPU instructions by semantic grouping
 
 pub mod arithmetic;
+pub mod compare;
 pub mod load_store;
 pub mod logic;
 pub mod shift_rotate;
