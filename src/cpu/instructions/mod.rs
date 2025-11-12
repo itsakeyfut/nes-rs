@@ -4,6 +4,7 @@
 pub mod arithmetic;
 pub mod branch;
 pub mod compare;
+pub mod jump_subroutine;
 pub mod load_store;
 pub mod logic;
 pub mod shift_rotate;
