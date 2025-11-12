@@ -385,7 +385,10 @@ mod tests {
         cpu.sbc(&bus, &addr_result);
 
         assert_eq!(cpu.a, 0xFF, "0x00 - 0x01 should wrap to 0xFF");
-        assert!(!cpu.get_carry(), "Carry flag should be clear (borrow occurred)");
+        assert!(
+            !cpu.get_carry(),
+            "Carry flag should be clear (borrow occurred)"
+        );
         assert!(cpu.get_negative(), "Negative flag should be set");
     }
 
@@ -501,7 +504,10 @@ mod tests {
 
         cpu.inc_update_flags(result);
         assert!(!cpu.get_zero(), "Zero flag should be clear");
-        assert!(cpu.get_negative(), "Negative flag should be set (bit 7 is 1)");
+        assert!(
+            cpu.get_negative(),
+            "Negative flag should be set (bit 7 is 1)"
+        );
     }
 
     // ========================================

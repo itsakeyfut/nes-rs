@@ -1,5 +1,5 @@
 // NES Emulator - Main Entry Point
-use nes_rs::{Cpu, Ppu, Apu, Bus, Cartridge, Controller};
+use nes_rs::{Apu, Bus, Cartridge, Controller, Cpu, Ppu};
 
 fn main() {
     println!("NES Emulator (nes-rs) v0.1.0");
