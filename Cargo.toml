@@ -1,6 +1,19 @@
 [package]
 name = "nes-rs"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+authors = ["itsakeyfut"]
+description = "A NES emulator written in Rust"
+license = "MIT"
 
 [dependencies]
+
+[dev-dependencies]
+
+[lib]
+name = "nes_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nes-rs"
+path = "src/main.rs"
