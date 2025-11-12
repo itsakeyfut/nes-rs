@@ -8,6 +8,7 @@ pub mod jump_subroutine;
 pub mod load_store;
 pub mod logic;
 pub mod shift_rotate;
+pub mod stack;
 pub mod transfer;
 
 use crate::bus::Bus;
