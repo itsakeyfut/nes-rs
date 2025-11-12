@@ -17,3 +17,26 @@ path = "src/lib.rs"
 [[bin]]
 name = "nes-rs"
 path = "src/main.rs"
+
+# Profile for development builds
+[profile.dev]
+opt-level = 0          # No optimization for faster compile times
+debug = true           # Full debug info
+debug-assertions = true # Enable debug assertions
+overflow-checks = true  # Enable overflow checks
+lto = false            # No Link Time Optimization
+panic = 'unwind'       # Unwind on panic for better debugging
+incremental = true     # Enable incremental compilation
+codegen-units = 256    # More units for faster parallel compilation
+
+# Profile for release builds
+[profile.release]
+opt-level = 3          # Maximum optimization
+debug = false          # No debug info
+debug-assertions = false # Disable debug assertions
+overflow-checks = false # Disable overflow checks for performance
+lto = "fat"            # Full Link Time Optimization
+panic = 'abort'        # Abort on panic (smaller binary)
+incremental = false    # No incremental for release
+codegen-units = 1      # Single unit for better optimization
+strip = true           # Strip symbols for smaller binary

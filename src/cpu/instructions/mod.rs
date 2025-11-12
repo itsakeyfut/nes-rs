@@ -3,6 +3,7 @@
 
 pub mod arithmetic;
 pub mod load_store;
+pub mod logic;
 pub mod transfer;
 
 use crate::bus::Bus;
