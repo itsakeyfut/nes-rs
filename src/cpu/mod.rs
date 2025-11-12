@@ -79,7 +79,7 @@ impl Cpu {
     /// - UNUSED flag must remain set
     ///
     /// Note: In a complete emulator, PC would be loaded from the reset vector
-    /// in memory. For now, it remains at its current value.
+    /// in memory. For now, we initialize it to 0x0000 to ensure a safe state.
     pub fn reset(&mut self) {
         self.a = 0;
         self.x = 0;
@@ -91,7 +91,9 @@ impl Cpu {
         self.set_flag(flags::UNUSED);
         self.set_flag(flags::INTERRUPT_DISABLE);
 
-        // PC will be loaded from reset vector ($FFFC-$FFFD) by the bus/memory system
+        // Initialize PC to a safe value
+        // TODO: Load the reset vector ($FFFC-$FFFD) from memory once the bus is wired
+        self.pc = 0x0000;
     }
 
     // ========================================
@@ -307,6 +309,7 @@ mod tests {
         assert_eq!(cpu.x, 0, "X register should be reset to 0");
         assert_eq!(cpu.y, 0, "Y register should be reset to 0");
         assert_eq!(cpu.sp, 0xFD, "Stack pointer should be reset to 0xFD");
+        assert_eq!(cpu.pc, 0x0000, "Program counter should be reset to 0x0000");
 
         // Verify status flags
         assert_eq!(
