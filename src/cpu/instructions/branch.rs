@@ -777,4 +777,67 @@ mod tests {
         assert_eq!(cpu.pc, 0x0200, "Should branch to same address");
         assert_eq!(cycles, 1, "Should still take 1 cycle");
     }
+
+    #[test]
+    fn test_branch_cycle_accuracy_with_multiple_conditions() {
+        // Test realistic scenario: Multiple branches in sequence with varying cycle counts
+        // This simulates typical 6502 code patterns where cycle timing matters
+        let mut cpu = Cpu::new();
+        let bus = Bus::new();
+
+        let mut total_cycles = 0;
+
+        // Scenario 1: Branch not taken (0 extra cycles)
+        cpu.pc = 0x0200;
+        cpu.set_zero(false);
+        total_cycles += cpu.beq(&bus, &AddressingResult::new(0x0250));
+        assert_eq!(cpu.pc, 0x0200, "PC should not change when branch not taken");
+        assert_eq!(total_cycles, 0, "No extra cycles for branch not taken");
+
+        // Scenario 2: Branch taken, same page (1 extra cycle)
+        cpu.pc = 0x0200;
+        cpu.set_zero(true);
+        total_cycles += cpu.beq(&bus, &AddressingResult::new(0x0250));
+        assert_eq!(cpu.pc, 0x0250, "PC should update when branch taken");
+        assert_eq!(total_cycles, 1, "1 extra cycle for branch taken");
+
+        // Scenario 3: Branch taken, page crossed (2 extra cycles)
+        cpu.pc = 0x01FE;
+        cpu.set_carry(true);
+        total_cycles +=
+            cpu.bcs(&bus, &AddressingResult::new(0x0210).with_page_cross(true));
+        assert_eq!(cpu.pc, 0x0210, "PC should update to new page");
+        assert_eq!(
+            total_cycles, 3,
+            "Total should be 3 (0 + 1 + 2)"
+        );
+
+        // Scenario 4: Another branch not taken
+        cpu.pc = 0x0210;
+        cpu.set_negative(false);
+        total_cycles += cpu.bmi(&bus, &AddressingResult::new(0x0300));
+        assert_eq!(cpu.pc, 0x0210, "PC should not change");
+        assert_eq!(
+            total_cycles, 3,
+            "Total should remain 3"
+        );
+
+        // Scenario 5: Branch backward with page cross (2 extra cycles)
+        cpu.pc = 0x0300;
+        cpu.set_overflow(true);
+        total_cycles +=
+            cpu.bvs(&bus, &AddressingResult::new(0x02F0).with_page_cross(true));
+        assert_eq!(cpu.pc, 0x02F0, "PC should branch backward across page");
+        assert_eq!(
+            total_cycles, 5,
+            "Total should be 5 (3 + 2)"
+        );
+
+        // Verify cycle counting is deterministic and accurate
+        // This is critical for timing-sensitive 6502 code (scanline timing, music, etc.)
+        assert_eq!(
+            total_cycles, 5,
+            "Final cycle count should be exactly 5 for this sequence"
+        );
+    }
 }
