@@ -1,6 +1,9 @@
 // CPU module - 6502 processor implementation
 // This module will contain the 6502 CPU emulation
 
+// Sub-modules
+pub mod addressing;
+
 /// Processor Status Flags (P register)
 ///
 /// Bit layout:
