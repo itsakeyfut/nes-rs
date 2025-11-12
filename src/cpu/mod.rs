@@ -3,6 +3,7 @@
 
 // Sub-modules
 pub mod addressing;
+pub mod instructions;
 
 /// Processor Status Flags (P register)
 ///
