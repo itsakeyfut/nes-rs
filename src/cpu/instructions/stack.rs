@@ -143,6 +143,7 @@ impl Cpu {
     /// When pulling status from stack:
     /// 1. The UNUSED flag (bit 5) is always set to 1 in the CPU status register
     /// 2. The B flag (bit 4) from the stack is ignored (not copied to status register)
+    ///
     /// This is important for RTI (Return from Interrupt) which behaves differently.
     pub fn plp(&mut self, bus: &Bus, _addr_result: &AddressingResult) -> u8 {
         let status_from_stack = self.stack_pop(bus);
@@ -242,12 +243,22 @@ mod tests {
         cpu.a = 0x33;
         cpu.pha(&mut bus, &AddressingResult::new(0));
 
-        assert_eq!(cpu.sp, initial_sp.wrapping_sub(3), "SP should decrement by 3");
+        assert_eq!(
+            cpu.sp,
+            initial_sp.wrapping_sub(3),
+            "SP should decrement by 3"
+        );
 
         // Verify values on stack (LIFO order)
         assert_eq!(bus.read(0x0100 | (initial_sp as u16)), 0x11);
-        assert_eq!(bus.read(0x0100 | ((initial_sp.wrapping_sub(1)) as u16)), 0x22);
-        assert_eq!(bus.read(0x0100 | ((initial_sp.wrapping_sub(2)) as u16)), 0x33);
+        assert_eq!(
+            bus.read(0x0100 | ((initial_sp.wrapping_sub(1)) as u16)),
+            0x22
+        );
+        assert_eq!(
+            bus.read(0x0100 | ((initial_sp.wrapping_sub(2)) as u16)),
+            0x33
+        );
     }
 
     #[test]
@@ -724,7 +735,10 @@ mod tests {
         // Verify original flags were restored
         assert!(cpu.get_carry(), "Carry should be restored");
         assert!(!cpu.get_zero(), "Zero should be restored");
-        assert!(cpu.get_interrupt_disable(), "Interrupt disable should be restored");
+        assert!(
+            cpu.get_interrupt_disable(),
+            "Interrupt disable should be restored"
+        );
         assert!(!cpu.get_decimal(), "Decimal should be restored");
         assert!(cpu.get_overflow(), "Overflow should be restored");
         assert!(!cpu.get_negative(), "Negative should be restored");
@@ -774,7 +788,10 @@ mod tests {
         // All flags should be set (except B flag is ignored)
         assert!(cpu.get_carry(), "Carry should be set");
         assert!(cpu.get_zero(), "Zero should be set");
-        assert!(cpu.get_interrupt_disable(), "Interrupt disable should be set");
+        assert!(
+            cpu.get_interrupt_disable(),
+            "Interrupt disable should be set"
+        );
         assert!(cpu.get_decimal(), "Decimal should be set");
         assert!(cpu.get_overflow(), "Overflow should be set");
         assert!(cpu.get_negative(), "Negative should be set");
@@ -795,7 +812,10 @@ mod tests {
         // All flags should be clear (except UNUSED which is forced to 1)
         assert!(!cpu.get_carry(), "Carry should be clear");
         assert!(!cpu.get_zero(), "Zero should be clear");
-        assert!(!cpu.get_interrupt_disable(), "Interrupt disable should be clear");
+        assert!(
+            !cpu.get_interrupt_disable(),
+            "Interrupt disable should be clear"
+        );
         assert!(!cpu.get_decimal(), "Decimal should be clear");
         assert!(!cpu.get_overflow(), "Overflow should be clear");
         assert!(!cpu.get_negative(), "Negative should be clear");
