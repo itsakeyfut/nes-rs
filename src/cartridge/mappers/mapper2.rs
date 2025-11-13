@@ -536,4 +536,432 @@ mod tests {
         // Last bank is always bank 1
         let _ = mapper.cpu_read(0xC000);
     }
+
+    // ========== Additional Coverage Tests ==========
+
+    #[test]
+    fn test_power_on_state() {
+        // Test initial state after power-on (creation)
+        let cartridge = create_test_cartridge(4, Mirroring::Horizontal);
+        let mapper = Mapper2::new(cartridge);
+
+        // Initial bank should be 0
+        assert_eq!(mapper.prg_bank, 0);
+        assert_eq!(mapper.prg_banks, 4);
+        assert_eq!(mapper.chr_ram.len(), CHR_RAM_SIZE);
+
+        // CHR-RAM should be initialized to zeros
+        for i in 0..CHR_RAM_SIZE {
+            assert_eq!(mapper.chr_ram[i], 0);
+        }
+
+        // Mirroring should match cartridge
+        assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn test_unmapped_address_reads() {
+        let cartridge = create_test_cartridge(2, Mirroring::Horizontal);
+        let mapper = Mapper2::new(cartridge);
+
+        // Addresses below $8000 should return 0
+        assert_eq!(mapper.cpu_read(0x0000), 0);
+        assert_eq!(mapper.cpu_read(0x6000), 0);
+        assert_eq!(mapper.cpu_read(0x7FFF), 0);
+
+        // PPU addresses above $1FFF should return 0
+        assert_eq!(mapper.ppu_read(0x2000), 0);
+        assert_eq!(mapper.ppu_read(0x3FFF), 0);
+    }
+
+    #[test]
+    fn test_unmapped_address_writes() {
+        let cartridge = create_test_cartridge(2, Mirroring::Horizontal);
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Writes to unmapped CPU addresses should be ignored
+        mapper.cpu_write(0x0000, 0xFF);
+        mapper.cpu_write(0x6000, 0xFF);
+        mapper.cpu_write(0x7FFF, 0xFF);
+
+        // Writes to unmapped PPU addresses should be ignored
+        mapper.ppu_write(0x2000, 0xFF);
+        mapper.ppu_write(0x3FFF, 0xFF);
+
+        // Verify no crash and state is consistent
+        assert_eq!(mapper.prg_bank, 0);
+    }
+
+    #[test]
+    fn test_bank_boundary_exact_reads() {
+        let mut cartridge = create_test_cartridge(4, Mirroring::Horizontal);
+
+        // Set specific values at bank boundaries
+        cartridge.prg_rom[0x3FFF] = 0xAA; // Last byte of bank 0
+        cartridge.prg_rom[0x4000] = 0xBB; // First byte of bank 1
+        cartridge.prg_rom[0x7FFF] = 0xCC; // Last byte of bank 1
+        cartridge.prg_rom[0x8000] = 0xDD; // First byte of bank 2
+        cartridge.prg_rom[0xBFFF] = 0xEE; // Last byte of bank 2
+        cartridge.prg_rom[0xC000] = 0xFF; // First byte of bank 3 (last bank)
+        cartridge.prg_rom[0xFFFF] = 0x11; // Last byte of bank 3
+
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Test bank 0 boundaries
+        mapper.cpu_write(0x8000, 0);
+        assert_eq!(mapper.cpu_read(0xBFFF), 0xAA);
+
+        // Test bank 1 boundaries
+        mapper.cpu_write(0x8000, 1);
+        assert_eq!(mapper.cpu_read(0x8000), 0xBB);
+        assert_eq!(mapper.cpu_read(0xBFFF), 0xCC);
+
+        // Test bank 2 boundaries
+        mapper.cpu_write(0x8000, 2);
+        assert_eq!(mapper.cpu_read(0x8000), 0xDD);
+        assert_eq!(mapper.cpu_read(0xBFFF), 0xEE);
+
+        // Test last bank (bank 3) boundaries - always accessible
+        assert_eq!(mapper.cpu_read(0xC000), 0xFF);
+        assert_eq!(mapper.cpu_read(0xFFFF), 0x11);
+    }
+
+    #[test]
+    fn test_chr_ram_bit_patterns() {
+        let cartridge = create_test_cartridge(2, Mirroring::Horizontal);
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Test various bit patterns
+        let patterns = [
+            0x00, 0xFF, 0xAA, 0x55, 0xF0, 0x0F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
+        ];
+
+        for (i, &pattern) in patterns.iter().enumerate() {
+            let addr = (i * 0x100) as u16; // Spread across CHR-RAM
+            mapper.ppu_write(addr, pattern);
+            assert_eq!(
+                mapper.ppu_read(addr),
+                pattern,
+                "Pattern {:#X} failed at address {:#X}",
+                pattern,
+                addr
+            );
+        }
+    }
+
+    #[test]
+    fn test_chr_ram_byte_independence() {
+        let cartridge = create_test_cartridge(2, Mirroring::Horizontal);
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Write different values to adjacent bytes
+        mapper.ppu_write(0x1000, 0xAA);
+        mapper.ppu_write(0x1001, 0x55);
+        mapper.ppu_write(0x1002, 0xFF);
+        mapper.ppu_write(0x1003, 0x00);
+
+        // Verify each byte is independent
+        assert_eq!(mapper.ppu_read(0x1000), 0xAA);
+        assert_eq!(mapper.ppu_read(0x1001), 0x55);
+        assert_eq!(mapper.ppu_read(0x1002), 0xFF);
+        assert_eq!(mapper.ppu_read(0x1003), 0x00);
+
+        // Modify one byte and verify others unchanged
+        mapper.ppu_write(0x1001, 0xCC);
+        assert_eq!(mapper.ppu_read(0x1000), 0xAA);
+        assert_eq!(mapper.ppu_read(0x1001), 0xCC);
+        assert_eq!(mapper.ppu_read(0x1002), 0xFF);
+        assert_eq!(mapper.ppu_read(0x1003), 0x00);
+    }
+
+    #[test]
+    fn test_chr_ram_full_write_read_cycle() {
+        let cartridge = create_test_cartridge(2, Mirroring::Horizontal);
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Write entire CHR-RAM with pattern
+        for i in 0..CHR_RAM_SIZE {
+            let value = ((i ^ (i >> 8)) & 0xFF) as u8;
+            mapper.ppu_write(i as u16, value);
+        }
+
+        // Read back entire CHR-RAM and verify
+        for i in 0..CHR_RAM_SIZE {
+            let expected = ((i ^ (i >> 8)) & 0xFF) as u8;
+            assert_eq!(
+                mapper.ppu_read(i as u16),
+                expected,
+                "Full cycle failed at offset {:#X}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_interleaved_prg_chr_operations() {
+        let mut cartridge = create_test_cartridge(4, Mirroring::Horizontal);
+
+        // Set up PRG banks
+        for bank in 0..4 {
+            let start = bank * PRG_BANK_SIZE;
+            cartridge.prg_rom[start] = (bank * 0x11) as u8;
+        }
+
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Interleave PRG bank switches with CHR-RAM operations
+        mapper.cpu_write(0x8000, 0); // Switch to bank 0
+        mapper.ppu_write(0x0000, 0x11); // Write to CHR-RAM
+        assert_eq!(mapper.cpu_read(0x8000), 0x00);
+        assert_eq!(mapper.ppu_read(0x0000), 0x11);
+
+        mapper.cpu_write(0x8000, 1); // Switch to bank 1
+        mapper.ppu_write(0x0100, 0x22); // Write to CHR-RAM
+        assert_eq!(mapper.cpu_read(0x8000), 0x11);
+        assert_eq!(mapper.ppu_read(0x0100), 0x22);
+
+        mapper.cpu_write(0x8000, 2); // Switch to bank 2
+        assert_eq!(mapper.ppu_read(0x0000), 0x11); // Previous CHR write persists
+        assert_eq!(mapper.cpu_read(0x8000), 0x22);
+
+        mapper.ppu_write(0x1000, 0x33); // Write to CHR-RAM
+        mapper.cpu_write(0x8000, 3); // Switch to bank 3
+        assert_eq!(mapper.ppu_read(0x1000), 0x33);
+        assert_eq!(mapper.cpu_read(0x8000), 0x33);
+    }
+
+    #[test]
+    fn test_odd_bank_count() {
+        // Test with 3 banks (48KB)
+        let mut cartridge = create_test_cartridge(3, Mirroring::Horizontal);
+
+        for bank in 0..3 {
+            let start = bank * PRG_BANK_SIZE;
+            cartridge.prg_rom[start] = (bank * 0x20) as u8;
+        }
+
+        let mut mapper = Mapper2::new(cartridge);
+        assert_eq!(mapper.prg_banks, 3);
+
+        // Test switching through all banks
+        mapper.cpu_write(0x8000, 0);
+        assert_eq!(mapper.cpu_read(0x8000), 0x00);
+
+        mapper.cpu_write(0x8000, 1);
+        assert_eq!(mapper.cpu_read(0x8000), 0x20);
+
+        mapper.cpu_write(0x8000, 2);
+        assert_eq!(mapper.cpu_read(0x8000), 0x40);
+
+        // Last bank (bank 2) should always be at $C000-$FFFF
+        assert_eq!(mapper.cpu_read(0xC000), 0x40);
+
+        // Test with 5 banks (80KB)
+        let mut cartridge5 = create_test_cartridge(5, Mirroring::Vertical);
+        for bank in 0..5 {
+            let start = bank * PRG_BANK_SIZE;
+            cartridge5.prg_rom[start] = bank as u8;
+        }
+
+        let mapper5 = Mapper2::new(cartridge5);
+        assert_eq!(mapper5.prg_banks, 5);
+
+        // Last bank should be bank 4
+        assert_eq!(mapper5.cpu_read(0xC000), 4);
+    }
+
+    #[test]
+    fn test_bank_modulo_wrapping_behavior() {
+        // Test with 4 banks
+        let mut cartridge = create_test_cartridge(4, Mirroring::Horizontal);
+
+        for bank in 0..4 {
+            let start = bank * PRG_BANK_SIZE;
+            cartridge.prg_rom[start] = (bank * 0x10) as u8;
+        }
+
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Test wrapping: bank 4 should map to bank 0, bank 5 to bank 1, etc.
+        mapper.cpu_write(0x8000, 4);
+        assert_eq!(mapper.cpu_read(0x8000), 0x00); // Wraps to bank 0
+
+        mapper.cpu_write(0x8000, 5);
+        assert_eq!(mapper.cpu_read(0x8000), 0x10); // Wraps to bank 1
+
+        mapper.cpu_write(0x8000, 8);
+        assert_eq!(mapper.cpu_read(0x8000), 0x00); // Wraps to bank 0
+
+        mapper.cpu_write(0x8000, 11);
+        assert_eq!(mapper.cpu_read(0x8000), 0x30); // Wraps to bank 3
+    }
+
+    #[test]
+    fn test_all_mirroring_modes() {
+        // Test all mirroring modes
+        let test_cases = [
+            Mirroring::Horizontal,
+            Mirroring::Vertical,
+            Mirroring::SingleScreen,
+            Mirroring::FourScreen,
+        ];
+
+        for mirroring in test_cases {
+            let cartridge = create_test_cartridge(2, mirroring);
+            let mapper = Mapper2::new(cartridge);
+            assert_eq!(mapper.mirroring(), mirroring);
+        }
+    }
+
+    #[test]
+    fn test_mirroring_persistence() {
+        let cartridge = create_test_cartridge(4, Mirroring::Vertical);
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Mirroring should not change after bank switches
+        let original_mirroring = mapper.mirroring();
+
+        for bank in 0..4 {
+            mapper.cpu_write(0x8000, bank);
+            assert_eq!(mapper.mirroring(), original_mirroring);
+        }
+    }
+
+    #[test]
+    fn test_rapid_bank_switching() {
+        let mut cartridge = create_test_cartridge(8, Mirroring::Horizontal);
+
+        for bank in 0..8 {
+            let start = bank * PRG_BANK_SIZE;
+            cartridge.prg_rom[start] = bank as u8;
+        }
+
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Rapidly switch banks and verify each time
+        for _ in 0..100 {
+            for bank in 0..8 {
+                mapper.cpu_write(0x8000, bank as u8);
+                assert_eq!(mapper.cpu_read(0x8000), bank as u8);
+            }
+        }
+    }
+
+    #[test]
+    fn test_bank_switch_immediate_read() {
+        let mut cartridge = create_test_cartridge(4, Mirroring::Horizontal);
+
+        for bank in 0..4 {
+            let start = bank * PRG_BANK_SIZE;
+            for i in 0..256 {
+                cartridge.prg_rom[start + i] = ((bank * 0x40) + i) as u8;
+            }
+        }
+
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Switch bank and immediately read
+        mapper.cpu_write(0x8000, 2);
+        assert_eq!(mapper.cpu_read(0x8000), 0x80); // Bank 2, offset 0
+
+        mapper.cpu_write(0xFFFF, 3);
+        assert_eq!(mapper.cpu_read(0x8000), 0xC0); // Bank 3, offset 0
+        assert_eq!(mapper.cpu_read(0x8001), 0xC1); // Bank 3, offset 1
+    }
+
+    #[test]
+    fn test_zero_bank_explicit() {
+        let mut cartridge = create_test_cartridge(4, Mirroring::Horizontal);
+        cartridge.prg_rom[0] = 0xAB; // First byte of bank 0
+
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Explicitly select bank 0
+        mapper.cpu_write(0x8000, 0);
+        assert_eq!(mapper.prg_bank, 0);
+        assert_eq!(mapper.cpu_read(0x8000), 0xAB);
+
+        // Select another bank, then back to 0
+        mapper.cpu_write(0x8000, 2);
+        mapper.cpu_write(0x8000, 0);
+        assert_eq!(mapper.prg_bank, 0);
+        assert_eq!(mapper.cpu_read(0x8000), 0xAB);
+    }
+
+    #[test]
+    fn test_chr_ram_address_wrapping() {
+        let cartridge = create_test_cartridge(2, Mirroring::Horizontal);
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Write to CHR-RAM
+        mapper.ppu_write(0x0000, 0x11);
+        mapper.ppu_write(0x1FFF, 0x22);
+
+        // Read back to verify
+        assert_eq!(mapper.ppu_read(0x0000), 0x11);
+        assert_eq!(mapper.ppu_read(0x1FFF), 0x22);
+    }
+
+    #[test]
+    fn test_consecutive_same_bank_writes() {
+        let mut cartridge = create_test_cartridge(4, Mirroring::Horizontal);
+        cartridge.prg_rom[0] = 0xAA;
+
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Write same bank multiple times
+        for _ in 0..10 {
+            mapper.cpu_write(0x8000, 0);
+            assert_eq!(mapper.prg_bank, 0);
+            assert_eq!(mapper.cpu_read(0x8000), 0xAA);
+        }
+    }
+
+    #[test]
+    fn test_chr_ram_overwrite() {
+        let cartridge = create_test_cartridge(2, Mirroring::Horizontal);
+        let mut mapper = Mapper2::new(cartridge);
+
+        let addr = 0x0500;
+
+        // Write multiple different values to same location
+        let values = [0x00, 0xFF, 0xAA, 0x55, 0x11];
+        for &value in &values {
+            mapper.ppu_write(addr, value);
+            assert_eq!(mapper.ppu_read(addr), value);
+        }
+    }
+
+    #[test]
+    fn test_prg_rom_immutability() {
+        let mut cartridge = create_test_cartridge(2, Mirroring::Horizontal);
+        cartridge.prg_rom[0] = 0x42;
+        cartridge.prg_rom[PRG_BANK_SIZE] = 0x84; // Last bank
+
+        let mapper = Mapper2::new(cartridge);
+
+        // PRG-ROM should be read-only (reads don't modify it)
+        let value1 = mapper.cpu_read(0x8000);
+        let value2 = mapper.cpu_read(0x8000);
+        assert_eq!(value1, value2);
+        assert_eq!(value1, 0x42);
+
+        // Last bank should also be immutable
+        let value3 = mapper.cpu_read(0xC000);
+        let value4 = mapper.cpu_read(0xC000);
+        assert_eq!(value3, value4);
+        assert_eq!(value3, 0x84);
+    }
+
+    #[test]
+    fn test_bank_register_full_range() {
+        let cartridge = create_test_cartridge(4, Mirroring::Horizontal);
+        let mut mapper = Mapper2::new(cartridge);
+
+        // Test full u8 range
+        for bank_value in [0, 1, 2, 3, 127, 128, 254, 255] {
+            mapper.cpu_write(0x8000, bank_value);
+            assert_eq!(mapper.prg_bank, bank_value);
+        }
+    }
 }
