@@ -226,8 +226,9 @@ impl Ppu {
                 self.read_buffer = 0; // Stub: would read from PPU memory here
 
                 // Increment address based on PPUCTRL bit 2
+                // Mask to 0x3FFF to keep within 14-bit PPU address space
                 let increment = if self.ppuctrl & 0x04 != 0 { 32 } else { 1 };
-                self.ppu_addr = self.ppu_addr.wrapping_add(increment);
+                self.ppu_addr = self.ppu_addr.wrapping_add(increment) & 0x3FFF;
 
                 value
             }
@@ -294,12 +295,13 @@ impl Ppu {
                 // First write: High byte of address
                 // Second write: Low byte of address
                 if !self.write_latch {
-                    // First write: high byte
-                    self.ppu_addr_temp = data;
+                    // First write: high byte (mask to 6 bits for 14-bit address space)
+                    self.ppu_addr_temp = data & 0x3F;
                     self.write_latch = true;
                 } else {
                     // Second write: low byte
-                    self.ppu_addr = ((self.ppu_addr_temp as u16) << 8) | (data as u16);
+                    // Assemble and mask to 0x3FFF to keep within 14-bit PPU address space
+                    self.ppu_addr = (((self.ppu_addr_temp as u16) << 8) | (data as u16)) & 0x3FFF;
                     self.write_latch = false;
                 }
             }
@@ -309,8 +311,9 @@ impl Ppu {
                 // Full implementation will write to PPU memory
 
                 // Increment address based on PPUCTRL bit 2
+                // Mask to 0x3FFF to keep within 14-bit PPU address space
                 let increment = if self.ppuctrl & 0x04 != 0 { 32 } else { 1 };
-                self.ppu_addr = self.ppu_addr.wrapping_add(increment);
+                self.ppu_addr = self.ppu_addr.wrapping_add(increment) & 0x3FFF;
             }
             _ => {
                 // Should not reach here due to masking, but ignore as fallback
@@ -698,5 +701,81 @@ mod tests {
 
         // OAM address should have wrapped around
         assert_eq!(ppu.oam_addr, 64);
+    }
+
+    // ========================================
+    // PPU Address Space Masking Tests
+    // ========================================
+
+    #[test]
+    fn test_ppuaddr_masks_high_byte() {
+        let mut ppu = Ppu::new();
+
+        // Write high byte with bits beyond 0x3F (should be masked to 6 bits)
+        ppu.write(PPUADDR, 0xFF); // All bits set
+        ppu.write(PPUADDR, 0xFF); // Low byte
+
+        // Should be masked to 0x3FFF (high byte masked to 0x3F)
+        assert_eq!(ppu.ppu_addr, 0x3FFF);
+    }
+
+    #[test]
+    fn test_ppuaddr_wraps_at_boundary() {
+        let mut ppu = Ppu::new();
+
+        // Set address to 0x3FFF
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0xFF);
+        assert_eq!(ppu.ppu_addr, 0x3FFF);
+
+        // Increment by 1 should wrap to 0x0000
+        ppu.ppuctrl = 0x00; // Increment by 1
+        ppu.write(PPUDATA, 0x42);
+        assert_eq!(ppu.ppu_addr, 0x0000);
+    }
+
+    #[test]
+    fn test_ppudata_read_masks_address() {
+        let mut ppu = Ppu::new();
+        ppu.ppuctrl = 0x00; // Increment by 1
+
+        // Set address to near boundary
+        ppu.ppu_addr = 0x3FFF;
+
+        // Read should increment and wrap
+        ppu.read(PPUDATA);
+        assert_eq!(ppu.ppu_addr, 0x0000);
+    }
+
+    #[test]
+    fn test_ppudata_increment_32_wraps() {
+        let mut ppu = Ppu::new();
+        ppu.ppuctrl = 0x04; // Increment by 32
+
+        // Set address near boundary
+        ppu.ppu_addr = 0x3FF0;
+
+        // Write should increment by 32 and wrap
+        ppu.write(PPUDATA, 0x42);
+        assert_eq!(ppu.ppu_addr, 0x0010); // (0x3FF0 + 32) & 0x3FFF = 0x0010
+    }
+
+    #[test]
+    fn test_ppuaddr_stays_within_14bit_range() {
+        let mut ppu = Ppu::new();
+
+        // Test various high bytes that exceed 0x3F
+        for high_byte in 0x40..=0xFF {
+            ppu.write(PPUADDR, high_byte);
+            ppu.write(PPUADDR, 0x00);
+
+            // Address should always be masked to 0x3FFF or less
+            assert!(
+                ppu.ppu_addr <= 0x3FFF,
+                "Address 0x{:04X} exceeds 14-bit range (high byte was 0x{:02X})",
+                ppu.ppu_addr,
+                high_byte
+            );
+        }
     }
 }
