@@ -8,6 +8,7 @@ pub mod flags;
 pub mod jump_subroutine;
 pub mod load_store;
 pub mod logic;
+pub mod miscellaneous;
 pub mod shift_rotate;
 pub mod stack;
 pub mod transfer;

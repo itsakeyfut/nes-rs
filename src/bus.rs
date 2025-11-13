@@ -5,12 +5,18 @@
 pub struct Bus {
     // RAM: 2KB internal RAM
     ram: [u8; 2048],
+    // ROM: Temporary ROM storage for testing (will be replaced with proper cartridge)
+    // Covers $4020-$FFFF (48KB)
+    rom: [u8; 0xC000],
 }
 
 impl Bus {
     /// Create a new bus instance
     pub fn new() -> Self {
-        Bus { ram: [0; 2048] }
+        Bus {
+            ram: [0; 2048],
+            rom: [0; 0xC000],
+        }
     }
 
     /// Read a byte from memory
@@ -30,8 +36,8 @@ impl Bus {
             }
             // Cartridge space: $4020-$FFFF
             0x4020..=0xFFFF => {
-                // TODO: Implement cartridge reads
-                0
+                let rom_addr = addr.wrapping_sub(0x4020) as usize;
+                self.rom[rom_addr]
             }
             _ => 0,
         }
@@ -54,7 +60,8 @@ impl Bus {
             }
             // Cartridge space: $4020-$FFFF
             0x4020..=0xFFFF => {
-                // TODO: Implement cartridge writes
+                let rom_addr = addr.wrapping_sub(0x4020) as usize;
+                self.rom[rom_addr] = data;
             }
             _ => {}
         }
