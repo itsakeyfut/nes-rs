@@ -374,7 +374,7 @@ impl Ppu {
         let addr = (addr & 0x001F) as usize;
 
         // Special mirroring: $3F10, $3F14, $3F18, $3F1C -> $3F00, $3F04, $3F08, $3F0C
-        if addr >= 16 && addr.is_multiple_of(4) {
+        if addr >= 16 && addr % 4 == 0 {
             addr - 16
         } else {
             addr
@@ -1333,9 +1333,9 @@ mod tests {
 
         // Second write: Y scroll
         ppu.write(PPUSCROLL, 0xE5); // Binary: 11100101
-        // Fine Y (top 3 bits) should be in bits 12-14 of t: 111
+                                    // Fine Y (top 3 bits) should be in bits 12-14 of t: 111
         assert_eq!((ppu.t >> 12) & 0x07, 0x05); // Fine Y = 101
-        // Coarse Y (bottom 5 bits) should be in bits 5-9 of t: 00101
+                                                // Coarse Y (bottom 5 bits) should be in bits 5-9 of t: 00101
         assert_eq!((ppu.t >> 5) & 0x1F, 0x1C); // Coarse Y = 11100
     }
 
