@@ -43,7 +43,10 @@ impl Cpu {
 
         // Calculate actual cycles (base + page crossing penalty + branch cycles)
         let mut cycles = opcode_info.cycles;
-        if opcode_info.page_cycle && addr_result.page_crossed {
+        if opcode_info.page_cycle
+            && addr_result.page_crossed
+            && opcode_info.mode != AddressingMode::Relative
+        {
             cycles += 1;
         }
         cycles += extra_cycles;
