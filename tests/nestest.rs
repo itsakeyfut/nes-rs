@@ -54,7 +54,7 @@ fn nestest_cpu_test() {
 
     for instruction_num in 0..max_instructions {
         // Generate trace before executing the instruction
-        let trace_line = cpu.trace(&bus);
+        let trace_line = cpu.trace(&mut bus);
 
         // Write to trace file
         writeln!(trace_file, "{}", trace_line).expect("Failed to write to trace file");

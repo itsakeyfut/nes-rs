@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_ram_size() {
-        let mut ram = Ram::new();
+        let ram = Ram::new();
         assert_eq!(ram.size(), 2048);
     }
 
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn test_mirror_address_function() {
-        let mut ram = Ram::new();
+        let ram = Ram::new();
 
         // Base addresses should remain unchanged
         assert_eq!(ram.mirror_address(0x0000), 0x0000);

@@ -24,100 +24,26 @@
 
 use crate::bus::MemoryMappedDevice;
 
-/// PPU Control Register ($2000) - Write only
-///
-/// ```text
-/// 7  bit  0
-/// ---- ----
-/// VPHB SINN
-/// |||| ||||
-/// |||| ||++- Base nametable address
-/// |||| ||    (0 = $2000; 1 = $2400; 2 = $2800; 3 = $2C00)
-/// |||| |+--- VRAM address increment per CPU read/write of PPUDATA
-/// |||| |     (0: add 1, going across; 1: add 32, going down)
-/// |||| +---- Sprite pattern table address for 8x8 sprites
-/// ||||       (0: $0000; 1: $1000; ignored in 8x16 mode)
-/// |||+------ Background pattern table address (0: $0000; 1: $1000)
-/// ||+------- Sprite size (0: 8x8 pixels; 1: 8x16 pixels)
-/// |+-------- PPU master/slave select (0: read backdrop from EXT pins; 1: output color on EXT pins)
-/// +--------- Generate an NMI at the start of VBlank (0: off; 1: on)
-/// ```
-const PPUCTRL: u16 = 0x2000;
-
-/// PPU Mask Register ($2001) - Write only
-///
-/// ```text
-/// 7  bit  0
-/// ---- ----
-/// BGRs bMmG
-/// |||| ||||
-/// |||| |||+- Greyscale (0: normal color, 1: produce a greyscale display)
-/// |||| ||+-- Show background in leftmost 8 pixels of screen (0: hide, 1: show)
-/// |||| |+--- Show sprites in leftmost 8 pixels of screen (0: hide, 1: show)
-/// |||| +---- Show background (0: hide, 1: show)
-/// |||+------ Show sprites (0: hide, 1: show)
-/// ||+------- Emphasize red
-/// |+-------- Emphasize green
-/// +--------- Emphasize blue
-/// ```
-const PPUMASK: u16 = 0x2001;
-
-/// PPU Status Register ($2002) - Read only
-///
-/// ```text
-/// 7  bit  0
-/// ---- ----
-/// VSO. ....
-/// |||| ||||
-/// |||+-++++- Least significant bits previously written into a PPU register
-/// ||+------- Sprite overflow flag
-/// |+-------- Sprite 0 hit flag
-/// +--------- Vertical blank has started (0: not in vblank; 1: in vblank)
-/// ```
-///
-/// Reading this register clears the VBlank flag and the address latch used by PPUSCROLL and PPUADDR.
-const PPUSTATUS: u16 = 0x2002;
-
-/// OAM Address Port ($2003) - Write only
-///
-/// Write the address of OAM you want to access here. Most games initialize this to 0 during rendering.
-const OAMADDR: u16 = 0x2003;
-
-/// OAM Data Port ($2004) - Read/Write
-///
-/// Write OAM data here. Writes will increment OAMADDR after the write.
-/// Reads during vertical or forced blanking return the value from OAM at that address.
-const OAMDATA: u16 = 0x2004;
-
-/// Scroll Position Register ($2005) - Write×2
-///
-/// Used to change the scroll position, telling the PPU which pixel of the nametable
-/// should be at the top left corner of the rendered screen.
-///
-/// First write: X scroll position
-/// Second write: Y scroll position
-///
-/// Uses the address latch (w register) to track which write is next.
-const PPUSCROLL: u16 = 0x2005;
-
-/// PPU Address Register ($2006) - Write×2
-///
-/// Write the 16-bit address of PPU memory to access via PPUDATA here.
-///
-/// First write: High byte of address
-/// Second write: Low byte of address
-///
-/// Uses the address latch (w register) to track which write is next.
-const PPUADDR: u16 = 0x2006;
-
-/// PPU Data Port ($2007) - Read/Write
-///
-/// Read or write data from/to the PPU address set by PPUADDR.
-/// After access, the PPU address is incremented by the amount specified in PPUCTRL.
-///
-/// Reads are buffered (delayed by one read) for addresses $0000-$3EFF.
-/// Palette data ($3F00-$3FFF) is returned immediately.
-const PPUDATA: u16 = 0x2007;
+// Test-only constants for PPU register addresses
+#[cfg(test)]
+mod test_constants {
+    /// PPU Control Register ($2000) - Write only
+    pub const PPUCTRL: u16 = 0x2000;
+    /// PPU Mask Register ($2001) - Write only
+    pub const PPUMASK: u16 = 0x2001;
+    /// PPU Status Register ($2002) - Read only
+    pub const PPUSTATUS: u16 = 0x2002;
+    /// OAM Address Port ($2003) - Write only
+    pub const OAMADDR: u16 = 0x2003;
+    /// OAM Data Port ($2004) - Read/Write
+    pub const OAMDATA: u16 = 0x2004;
+    /// Scroll Position Register ($2005) - Write×2
+    pub const PPUSCROLL: u16 = 0x2005;
+    /// PPU Address Register ($2006) - Write×2
+    pub const PPUADDR: u16 = 0x2006;
+    /// PPU Data Port ($2007) - Read/Write
+    pub const PPUDATA: u16 = 0x2007;
+}
 
 /// PPU register address mask for mirroring
 ///
@@ -434,6 +360,7 @@ impl Default for Ppu {
 
 #[cfg(test)]
 mod tests {
+    use super::test_constants::*;
     use super::*;
 
     // ========================================

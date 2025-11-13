@@ -804,7 +804,10 @@ mod tests {
         // Scenario 3: Branch taken, page crossed (2 extra cycles)
         cpu.pc = 0x01FE;
         cpu.set_carry(true);
-        total_cycles += cpu.bcs(&mut bus, &AddressingResult::new(0x0210).with_page_cross(true));
+        total_cycles += cpu.bcs(
+            &mut bus,
+            &AddressingResult::new(0x0210).with_page_cross(true),
+        );
         assert_eq!(cpu.pc, 0x0210, "PC should update to new page");
         assert_eq!(total_cycles, 3, "Total should be 3 (0 + 1 + 2)");
 
@@ -818,7 +821,10 @@ mod tests {
         // Scenario 5: Branch backward with page cross (2 extra cycles)
         cpu.pc = 0x0300;
         cpu.set_overflow(true);
-        total_cycles += cpu.bvs(&mut bus, &AddressingResult::new(0x02F0).with_page_cross(true));
+        total_cycles += cpu.bvs(
+            &mut bus,
+            &AddressingResult::new(0x02F0).with_page_cross(true),
+        );
         assert_eq!(cpu.pc, 0x02F0, "PC should branch backward across page");
         assert_eq!(total_cycles, 5, "Total should be 5 (3 + 2)");
 
