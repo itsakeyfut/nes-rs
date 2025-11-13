@@ -91,6 +91,27 @@ pub struct Bus {
     /// This will be replaced with proper cartridge/mapper implementation.
     /// Covers $4020-$FFFF (approximately 48KB).
     rom: [u8; 0xC000],
+
+    // ========================================
+    // OAM DMA State
+    // ========================================
+    /// OAM DMA pending flag
+    ///
+    /// When true, indicates that an OAM DMA transfer has been requested
+    /// and should be executed on the next CPU step.
+    dma_pending: bool,
+
+    /// OAM DMA page address (high byte)
+    ///
+    /// Stores the high byte of the source address for OAM DMA.
+    /// DMA transfers 256 bytes from $XX00-$XXFF to OAM.
+    dma_page: u8,
+
+    /// OAM DMA remaining cycles
+    ///
+    /// Tracks the number of cycles remaining for the current DMA transfer.
+    /// DMA takes 513 cycles (if starting on odd CPU cycle) or 514 cycles (even).
+    dma_cycles: u16,
     // Future: Dynamic component registration
     // cartridge: Option<Box<dyn MemoryMappedDevice>>,
 }
@@ -113,6 +134,9 @@ impl Bus {
             apu: Apu::new(),
             controller_io: ControllerIO::new(),
             rom: [0; 0xC000],
+            dma_pending: false,
+            dma_page: 0,
+            dma_cycles: 0,
         }
     }
 
@@ -247,8 +271,21 @@ impl Bus {
             // APU and I/O Registers: $4000-$4017
             0x4000..=0x4017 => {
                 match addr {
-                    // APU registers: $4000-$4015
-                    0x4000..=0x4015 => self.apu.write(addr, data),
+                    // APU registers: $4000-$4013
+                    0x4000..=0x4013 => self.apu.write(addr, data),
+
+                    // $4014: OAM DMA - Trigger DMA transfer
+                    // Writing to this register initiates a transfer of 256 bytes
+                    // from CPU memory ($XX00-$XXFF) to PPU OAM memory.
+                    // The written value is the high byte of the source address.
+                    0x4014 => {
+                        self.dma_page = data;
+                        self.dma_pending = true;
+                        // DMA cycles will be set when the transfer begins
+                    }
+
+                    // $4015: APU Status/Control
+                    0x4015 => self.apu.write(addr, data),
 
                     // $4016: Controller 1 strobe (W) / Controller 1 data (R)
                     0x4016 => self.controller_io.write(addr, data),
@@ -348,6 +385,100 @@ impl Bus {
         let hi = (data >> 8) as u8;
         self.write(addr, lo);
         self.write(addr.wrapping_add(1), hi);
+    }
+
+    // ========================================
+    // OAM DMA Methods
+    // ========================================
+
+    /// Check if OAM DMA transfer is pending or in progress
+    ///
+    /// # Returns
+    ///
+    /// True if DMA is pending or in progress, false otherwise
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::Bus;
+    ///
+    /// let mut bus = Bus::new();
+    /// bus.write(0x4014, 0x02); // Trigger DMA from $0200
+    /// assert!(bus.is_dma_active());
+    /// ```
+    pub fn is_dma_active(&self) -> bool {
+        self.dma_pending || self.dma_cycles > 0
+    }
+
+    /// Execute OAM DMA transfer
+    ///
+    /// This method should be called by the CPU to execute the DMA transfer.
+    /// It performs the transfer and returns the number of cycles consumed.
+    ///
+    /// DMA transfers 256 bytes from CPU address space ($XX00-$XXFF) to PPU OAM.
+    /// The transfer takes 513 cycles if starting on an odd CPU cycle, or
+    /// 514 cycles if starting on an even CPU cycle.
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu_cycle` - The current CPU cycle count (used to determine alignment)
+    ///
+    /// # Returns
+    ///
+    /// The number of cycles consumed by the DMA transfer
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::Bus;
+    ///
+    /// let mut bus = Bus::new();
+    /// // Setup source data
+    /// for i in 0..256 {
+    ///     bus.write(0x0200 + i, i as u8);
+    /// }
+    ///
+    /// // Trigger DMA
+    /// bus.write(0x4014, 0x02);
+    ///
+    /// // Execute DMA
+    /// let cycles = bus.execute_dma(0);
+    /// assert_eq!(cycles, 513); // Even cycle start = 513 + 1 = 514, but alignment dummy cycle = 513
+    /// ```
+    pub fn execute_dma(&mut self, cpu_cycle: u64) -> u16 {
+        if !self.dma_pending {
+            return 0;
+        }
+
+        // Calculate DMA cycles
+        // DMA takes:
+        // - 1 dummy cycle (wait cycle)
+        // - +1 additional cycle if starting on an odd CPU cycle
+        // - 512 cycles for the actual transfer (256 reads + 256 writes)
+        // Total: 513 cycles (odd start) or 514 cycles (even start)
+        let alignment_cycle = if cpu_cycle % 2 == 1 { 1 } else { 0 };
+        let total_cycles = 513 + alignment_cycle;
+
+        // Perform the DMA transfer
+        // Read 256 bytes from $XX00-$XXFF and write to OAM
+        let base_addr = (self.dma_page as u16) << 8;
+
+        for offset in 0..256u16 {
+            let source_addr = base_addr.wrapping_add(offset);
+            let data = self.read(source_addr);
+            self.ppu.write_oam(offset as u8, data);
+        }
+
+        // Clear DMA pending flag
+        self.dma_pending = false;
+        self.dma_cycles = 0;
+
+        total_cycles
+    }
+
+    /// Get the DMA page (for testing)
+    pub fn get_dma_page(&self) -> u8 {
+        self.dma_page
     }
 }
 
@@ -733,5 +864,385 @@ mod tests {
         assert_eq!(bus.read(0x0010), 0x02, "RAM mirror should overwrite");
         assert_eq!(bus.read(0x0810), 0x02, "RAM mirror bidirectional");
         assert_eq!(bus.read(0x8050), 0x06, "ROM independent");
+    }
+
+    // ========================================
+    // OAM DMA Tests ($4014)
+    // ========================================
+
+    #[test]
+    fn test_oam_dma_trigger() {
+        let mut bus = Bus::new();
+
+        // Initially no DMA should be active
+        assert!(!bus.is_dma_active());
+
+        // Write to $4014 to trigger DMA
+        bus.write(0x4014, 0x02);
+
+        // DMA should now be pending
+        assert!(bus.is_dma_active());
+        assert_eq!(bus.get_dma_page(), 0x02);
+    }
+
+    #[test]
+    fn test_oam_dma_transfer_from_page_02() {
+        let mut bus = Bus::new();
+
+        // Setup source data in RAM at $0200-$02FF
+        for i in 0..256 {
+            bus.write(0x0200 + i, i as u8);
+        }
+
+        // Trigger DMA from page $02
+        bus.write(0x4014, 0x02);
+        assert!(bus.is_dma_active());
+
+        // Execute DMA
+        let cycles = bus.execute_dma(0); // Start on even cycle
+
+        // Check cycles (even cycle start = 513 cycles)
+        assert_eq!(cycles, 513, "DMA should take 513 cycles on even start");
+
+        // Verify DMA is no longer active
+        assert!(!bus.is_dma_active());
+
+        // Verify all 256 bytes were transferred to OAM
+        for i in 0..256 {
+            assert_eq!(
+                bus.ppu.read_oam(i as u8),
+                i as u8,
+                "OAM byte {} should match source data",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_oam_dma_transfer_from_page_03() {
+        let mut bus = Bus::new();
+
+        // Setup source data in RAM at $0300-$03FF
+        for i in 0..256 {
+            bus.write(0x0300 + i, (255 - i) as u8);
+        }
+
+        // Trigger DMA from page $03
+        bus.write(0x4014, 0x03);
+
+        // Execute DMA
+        let cycles = bus.execute_dma(1); // Start on odd cycle
+
+        // Check cycles (odd cycle start = 514 cycles)
+        assert_eq!(cycles, 514, "DMA should take 514 cycles on odd start");
+
+        // Verify all 256 bytes were transferred correctly
+        for i in 0..256 {
+            assert_eq!(
+                bus.ppu.read_oam(i as u8),
+                (255 - i) as u8,
+                "OAM byte {} should match source data",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_oam_dma_cycle_alignment_even() {
+        let mut bus = Bus::new();
+
+        // Setup dummy data
+        for i in 0..256 {
+            bus.write(0x0200 + i, 0xAA);
+        }
+
+        bus.write(0x4014, 0x02);
+
+        // Execute on even cycle (0, 2, 4, etc.)
+        let cycles = bus.execute_dma(0);
+        assert_eq!(cycles, 513, "Even cycle start should take 513 cycles");
+
+        let cycles = bus.execute_dma(2);
+        assert_eq!(cycles, 0, "DMA already completed, should return 0");
+    }
+
+    #[test]
+    fn test_oam_dma_cycle_alignment_odd() {
+        let mut bus = Bus::new();
+
+        // Setup dummy data
+        for i in 0..256 {
+            bus.write(0x0200 + i, 0xBB);
+        }
+
+        bus.write(0x4014, 0x02);
+
+        // Execute on odd cycle (1, 3, 5, etc.)
+        let cycles = bus.execute_dma(1);
+        assert_eq!(cycles, 514, "Odd cycle start should take 514 cycles");
+    }
+
+    #[test]
+    fn test_oam_dma_from_different_pages() {
+        let mut bus = Bus::new();
+
+        // Test DMA from various pages
+        for page in [0x00, 0x01, 0x02, 0x03, 0x07, 0x80, 0xFF] {
+            // Setup source data
+            let base = (page as u16) << 8;
+            for i in 0..256 {
+                bus.write(base + i, page);
+            }
+
+            // Trigger DMA
+            bus.write(0x4014, page);
+            bus.execute_dma(0);
+
+            // Verify transfer
+            for i in 0..256 {
+                assert_eq!(
+                    bus.ppu.read_oam(i as u8),
+                    page,
+                    "OAM transfer from page ${:02X} failed at offset {}",
+                    page,
+                    i
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_oam_dma_overwrites_existing_data() {
+        let mut bus = Bus::new();
+
+        // Fill OAM with initial data via OAMDATA register
+        bus.write(0x2003, 0x00); // Set OAM address to 0
+        for _i in 0..256 {
+            bus.write(0x2004, 0xFF);
+        }
+
+        // Verify OAM is filled with 0xFF
+        assert_eq!(bus.ppu.read_oam(0), 0xFF);
+        assert_eq!(bus.ppu.read_oam(128), 0xFF);
+
+        // Setup new data in RAM
+        for i in 0..256 {
+            bus.write(0x0200 + i, i as u8);
+        }
+
+        // Execute DMA
+        bus.write(0x4014, 0x02);
+        bus.execute_dma(0);
+
+        // Verify OAM was overwritten
+        for i in 0..256 {
+            assert_eq!(
+                bus.ppu.read_oam(i as u8),
+                i as u8,
+                "OAM should be overwritten by DMA"
+            );
+        }
+    }
+
+    #[test]
+    fn test_oam_dma_multiple_transfers() {
+        let mut bus = Bus::new();
+
+        // First transfer
+        for i in 0..256 {
+            bus.write(0x0200 + i, 0x11);
+        }
+        bus.write(0x4014, 0x02);
+        bus.execute_dma(0);
+
+        assert_eq!(bus.ppu.read_oam(0), 0x11);
+        assert_eq!(bus.ppu.read_oam(255), 0x11);
+
+        // Second transfer
+        for i in 0..256 {
+            bus.write(0x0300 + i, 0x22);
+        }
+        bus.write(0x4014, 0x03);
+        bus.execute_dma(0);
+
+        assert_eq!(bus.ppu.read_oam(0), 0x22);
+        assert_eq!(bus.ppu.read_oam(255), 0x22);
+
+        // Third transfer
+        for i in 0..256 {
+            bus.write(0x0400 + i, 0x33);
+        }
+        bus.write(0x4014, 0x04);
+        bus.execute_dma(1);
+
+        assert_eq!(bus.ppu.read_oam(0), 0x33);
+        assert_eq!(bus.ppu.read_oam(255), 0x33);
+    }
+
+    #[test]
+    fn test_oam_dma_does_not_affect_other_memory() {
+        let mut bus = Bus::new();
+
+        // Setup data in various memory regions that won't overlap with DMA source
+        bus.write(0x0100, 0xAA); // RAM region
+        bus.write(0x0500, 0xBB); // Different RAM region
+        bus.write(0x07FF, 0xCC); // RAM end
+
+        // Setup DMA source (use 0x0200-0x02FF)
+        for i in 0..256 {
+            bus.write(0x0200 + i, i as u8);
+        }
+
+        // Execute DMA
+        bus.write(0x4014, 0x02);
+        bus.execute_dma(0);
+
+        // Verify other memory regions are unchanged
+        // (0x0200-0x02FF were used as source, so they should be unchanged)
+        assert_eq!(bus.read(0x0100), 0xAA, "RAM $0100 unchanged");
+        assert_eq!(bus.read(0x0500), 0xBB, "RAM $0500 unchanged");
+        assert_eq!(bus.read(0x07FF), 0xCC, "RAM end unchanged");
+    }
+
+    #[test]
+    fn test_oam_dma_from_ram_mirror() {
+        let mut bus = Bus::new();
+
+        // Write data to RAM mirror region ($0800-$0FFF mirrors $0000-$07FF)
+        for i in 0..256 {
+            bus.write(0x0800 + i, (i ^ 0xFF) as u8);
+        }
+
+        // Trigger DMA from page $08 (which mirrors page $00)
+        bus.write(0x4014, 0x08);
+        bus.execute_dma(0);
+
+        // Verify transfer (should read from mirrored RAM)
+        for i in 0..256 {
+            assert_eq!(
+                bus.ppu.read_oam(i as u8),
+                (i ^ 0xFF) as u8,
+                "DMA from RAM mirror failed at offset {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_oam_dma_edge_case_page_ff() {
+        let mut bus = Bus::new();
+
+        // Setup data at $FF00-$FFFF (top of address space)
+        for i in 0..256 {
+            bus.write(0xFF00 + i, 0x42);
+        }
+
+        // Trigger DMA from page $FF
+        bus.write(0x4014, 0xFF);
+        bus.execute_dma(0);
+
+        // Verify transfer
+        for i in 0..256 {
+            assert_eq!(bus.ppu.read_oam(i as u8), 0x42, "DMA from page $FF failed");
+        }
+    }
+
+    #[test]
+    fn test_oam_dma_is_not_active_initially() {
+        let bus = Bus::new();
+        assert!(!bus.is_dma_active());
+    }
+
+    #[test]
+    fn test_oam_dma_execute_without_trigger() {
+        let mut bus = Bus::new();
+
+        // Try to execute DMA without triggering it
+        let cycles = bus.execute_dma(0);
+
+        // Should return 0 cycles (no DMA to execute)
+        assert_eq!(cycles, 0);
+    }
+
+    #[test]
+    fn test_oam_dma_sprite_data_structure() {
+        let mut bus = Bus::new();
+
+        // Setup sprite data in memory (4 bytes per sprite, 64 sprites)
+        // Sprite 0: Y=10, Tile=0x20, Attr=0x00, X=50
+        bus.write(0x0200, 10); // Y
+        bus.write(0x0201, 0x20); // Tile
+        bus.write(0x0202, 0x00); // Attributes
+        bus.write(0x0203, 50); // X
+
+        // Sprite 1: Y=20, Tile=0x21, Attr=0x01, X=60
+        bus.write(0x0204, 20);
+        bus.write(0x0205, 0x21);
+        bus.write(0x0206, 0x01);
+        bus.write(0x0207, 60);
+
+        // Fill rest with zeros
+        for i in 8..256 {
+            bus.write(0x0200 + i, 0x00);
+        }
+
+        // Execute DMA
+        bus.write(0x4014, 0x02);
+        bus.execute_dma(0);
+
+        // Verify sprite 0 data
+        assert_eq!(bus.ppu.read_oam(0), 10, "Sprite 0 Y position");
+        assert_eq!(bus.ppu.read_oam(1), 0x20, "Sprite 0 tile");
+        assert_eq!(bus.ppu.read_oam(2), 0x00, "Sprite 0 attributes");
+        assert_eq!(bus.ppu.read_oam(3), 50, "Sprite 0 X position");
+
+        // Verify sprite 1 data
+        assert_eq!(bus.ppu.read_oam(4), 20, "Sprite 1 Y position");
+        assert_eq!(bus.ppu.read_oam(5), 0x21, "Sprite 1 tile");
+        assert_eq!(bus.ppu.read_oam(6), 0x01, "Sprite 1 attributes");
+        assert_eq!(bus.ppu.read_oam(7), 60, "Sprite 1 X position");
+    }
+
+    #[test]
+    fn test_oam_dma_typical_game_usage() {
+        let mut bus = Bus::new();
+
+        // Typical game usage pattern:
+        // 1. Game prepares sprite data in RAM page (e.g., $0200-$02FF)
+        for sprite_num in 0u8..64 {
+            let base = 0x0200 + (sprite_num as u16 * 4);
+            bus.write(base, sprite_num * 4); // Y position
+            bus.write(base + 1, sprite_num); // Tile number
+            bus.write(base + 2, 0x00); // Attributes
+            bus.write(base + 3, sprite_num * 4); // X position
+        }
+
+        // 2. During VBlank, game triggers OAM DMA
+        bus.write(0x4014, 0x02);
+        assert!(bus.is_dma_active());
+
+        // 3. CPU executes DMA transfer
+        let cycles = bus.execute_dma(1); // Assume we're on odd cycle
+
+        // 4. Verify DMA completed
+        assert!(!bus.is_dma_active());
+        assert_eq!(cycles, 514);
+
+        // 5. Verify all sprite data transferred correctly
+        for sprite_num in 0u8..64 {
+            let oam_offset = sprite_num * 4;
+            assert_eq!(
+                bus.ppu.read_oam(oam_offset),
+                sprite_num * 4,
+                "Sprite {} Y position",
+                sprite_num
+            );
+            assert_eq!(
+                bus.ppu.read_oam(oam_offset + 1),
+                sprite_num,
+                "Sprite {} tile",
+                sprite_num
+            );
+        }
     }
 }
