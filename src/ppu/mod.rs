@@ -108,6 +108,18 @@ pub struct Ppu {
     /// Reads from PPUDATA are buffered (delayed by one read) for addresses $0000-$3EFF.
     /// This simulates the PPU's internal read buffer.
     read_buffer: u8,
+
+    // ========================================
+    // OAM Memory (Object Attribute Memory)
+    // ========================================
+    /// OAM (Object Attribute Memory) - 256 bytes
+    ///
+    /// Stores sprite data for 64 sprites (4 bytes per sprite):
+    /// - Byte 0: Y position
+    /// - Byte 1: Tile index
+    /// - Byte 2: Attributes (palette, priority, flip)
+    /// - Byte 3: X position
+    oam: [u8; 256],
 }
 
 impl Ppu {
@@ -140,6 +152,9 @@ impl Ppu {
             ppu_addr_temp: 0x00,
             ppu_addr: 0x0000,
             read_buffer: 0x00,
+
+            // OAM memory
+            oam: [0; 256],
         }
     }
 
@@ -157,6 +172,42 @@ impl Ppu {
         self.ppu_addr_temp = 0x00;
         self.ppu_addr = 0x0000;
         self.read_buffer = 0x00;
+        self.oam = [0; 256];
+    }
+
+    /// Write directly to OAM memory (used by OAM DMA)
+    ///
+    /// This method is used by the OAM DMA transfer ($4014) to write directly
+    /// to OAM memory without going through the OAMDATA register.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - OAM address (0-255)
+    /// * `data` - Byte value to write
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::ppu::Ppu;
+    ///
+    /// let mut ppu = Ppu::new();
+    /// ppu.write_oam(0, 0x50); // Write Y position of first sprite
+    /// ```
+    pub fn write_oam(&mut self, addr: u8, data: u8) {
+        self.oam[addr as usize] = data;
+    }
+
+    /// Read directly from OAM memory (for testing)
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - OAM address (0-255)
+    ///
+    /// # Returns
+    ///
+    /// The byte value at the specified OAM address
+    pub fn read_oam(&self, addr: u8) -> u8 {
+        self.oam[addr as usize]
     }
 
     /// Read from a PPU register
@@ -206,9 +257,8 @@ impl Ppu {
             }
             4 => {
                 // $2004: OAMDATA - Read/Write
-                // Stub: return 0
-                // Full implementation will read from OAM memory
-                0
+                // Read from OAM at current OAM address
+                self.oam[self.oam_addr as usize]
             }
             5 => {
                 // $2005: PPUSCROLL - Write only, return 0
@@ -275,9 +325,8 @@ impl Ppu {
             }
             4 => {
                 // $2004: OAMDATA - Read/Write
-                // Stub: store value but don't write to OAM
-                // Full implementation will write to OAM memory
-                self.oam_data = data;
+                // Write to OAM at current OAM address
+                self.oam[self.oam_addr as usize] = data;
 
                 // Increment OAM address
                 self.oam_addr = self.oam_addr.wrapping_add(1);
