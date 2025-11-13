@@ -456,7 +456,7 @@ mod tests {
                 let expected = bank * 0x40;
                 assert_eq!(
                     mapper.cpu_read(0x8000),
-                    expected as u8,
+                    expected,
                     "Iteration {}, Bank {}",
                     iteration,
                     bank
