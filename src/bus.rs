@@ -68,7 +68,6 @@ pub struct Bus {
     /// This will be replaced with proper cartridge/mapper implementation.
     /// Covers $4020-$FFFF (approximately 48KB).
     rom: [u8; 0xC000],
-
     // Future: Dynamic component registration
     // ppu: Option<Box<dyn MemoryMappedDevice>>,
     // apu: Option<Box<dyn MemoryMappedDevice>>,
@@ -371,7 +370,11 @@ mod tests {
         // Write to base RAM at $0000
         bus.write(0x0000, 0x42);
         // Read from first mirror at $0800
-        assert_eq!(bus.read(0x0800), 0x42, "First mirror should reflect base RAM");
+        assert_eq!(
+            bus.read(0x0800),
+            0x42,
+            "First mirror should reflect base RAM"
+        );
     }
 
     #[test]
@@ -406,7 +409,11 @@ mod tests {
         // Write to mirror
         bus.write(0x0800, 0x99);
         // Read from base RAM
-        assert_eq!(bus.read(0x0000), 0x99, "Mirror write should affect base RAM");
+        assert_eq!(
+            bus.read(0x0000),
+            0x99,
+            "Mirror write should affect base RAM"
+        );
 
         // Write to another mirror
         bus.write(0x1500, 0xAA);
@@ -466,11 +473,7 @@ mod tests {
         assert_eq!(bus.read(0x2000), bus.read(0x2008), "$2000 mirrors at $2008");
         assert_eq!(bus.read(0x2000), bus.read(0x2010), "$2000 mirrors at $2010");
         assert_eq!(bus.read(0x2007), bus.read(0x200F), "$2007 mirrors at $200F");
-        assert_eq!(
-            bus.read(0x2000),
-            bus.read(0x3FF8),
-            "$2000 mirrors at $3FF8"
-        );
+        assert_eq!(bus.read(0x2000), bus.read(0x3FF8), "$2000 mirrors at $3FF8");
     }
 
     #[test]
@@ -597,7 +600,10 @@ mod tests {
         bus.write_u16(0x0100, test_value);
         let read_value = bus.read_u16(0x0100);
 
-        assert_eq!(read_value, test_value, "16-bit roundtrip should preserve value");
+        assert_eq!(
+            read_value, test_value,
+            "16-bit roundtrip should preserve value"
+        );
     }
 
     #[test]
