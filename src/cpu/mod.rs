@@ -307,24 +307,30 @@ impl Cpu {
     ///
     /// IRQ is triggered by external hardware (e.g., cartridge mappers, APU).
     /// IRQ can be disabled by setting the Interrupt Disable flag (I).
-    /// This method should only be called if the I flag is clear.
+    /// If the I flag is set, this method returns immediately without any state changes.
     ///
     /// Operation:
-    /// 1. Push PC high byte to stack
-    /// 2. Push PC low byte to stack
-    /// 3. Push status flags with B flag clear to stack
-    /// 4. Set I (Interrupt Disable) flag
-    /// 5. Load PC from IRQ vector at $FFFE-$FFFF
+    /// 1. Check if I flag is set; if so, return immediately (IRQ is masked)
+    /// 2. Push PC high byte to stack
+    /// 3. Push PC low byte to stack
+    /// 4. Push status flags with B flag clear to stack
+    /// 5. Set I (Interrupt Disable) flag
+    /// 6. Load PC from IRQ vector at $FFFE-$FFFF
     ///
     /// # Arguments
     /// * `bus` - The memory bus for stack operations and reading IRQ vector
     ///
     /// # Implementation Note
-    /// - The caller is responsible for checking the I flag before calling this method
+    /// - The I flag is checked internally; IRQ is ignored when I=1 (maskable interrupt)
     /// - The B flag is pushed as 0 (same as NMI)
     /// - Shares the same vector as BRK ($FFFE-$FFFF)
     /// - The I flag is set after the interrupt to prevent nested IRQs
     pub fn irq(&mut self, bus: &mut crate::bus::Bus) {
+        // Check if interrupts are disabled; if so, ignore this IRQ
+        if self.get_interrupt_disable() {
+            return;
+        }
+
         // Push PC to stack (high byte first, then low byte)
         self.stack_push_u16(bus, self.pc);
 
@@ -1021,6 +1027,7 @@ mod tests {
         bus.write(0xFFFF, (handler_addr >> 8) as u8);
 
         cpu.pc = 0x1000;
+        cpu.set_interrupt_disable(false); // Ensure I flag is clear
 
         // Trigger IRQ
         cpu.irq(&mut bus);
@@ -1029,6 +1036,73 @@ mod tests {
         assert_eq!(
             cpu.pc, handler_addr,
             "IRQ should use the same vector as BRK"
+        );
+    }
+
+    #[test]
+    fn test_irq_respects_i_flag() {
+        use crate::bus::Bus;
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
+
+        // Set up IRQ vector
+        let irq_handler_addr: u16 = 0xA000;
+        bus.write(0xFFFE, (irq_handler_addr & 0xFF) as u8);
+        bus.write(0xFFFF, (irq_handler_addr >> 8) as u8);
+
+        // Set initial state
+        cpu.pc = 0x5000;
+        cpu.set_interrupt_disable(true); // Set I flag to disable IRQ
+        let initial_sp = cpu.sp;
+        let initial_pc = cpu.pc;
+
+        // Trigger IRQ - should be ignored because I flag is set
+        cpu.irq(&mut bus);
+
+        // Verify CPU state is unchanged
+        assert_eq!(
+            cpu.pc, initial_pc,
+            "PC should not change when I flag is set"
+        );
+        assert_eq!(
+            cpu.sp, initial_sp,
+            "Stack pointer should not change when I flag is set"
+        );
+        assert!(cpu.get_interrupt_disable(), "I flag should remain set");
+    }
+
+    #[test]
+    fn test_irq_works_when_i_flag_clear() {
+        use crate::bus::Bus;
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
+
+        // Set up IRQ vector
+        let irq_handler_addr: u16 = 0xA000;
+        bus.write(0xFFFE, (irq_handler_addr & 0xFF) as u8);
+        bus.write(0xFFFF, (irq_handler_addr >> 8) as u8);
+
+        // Set initial state with I flag clear
+        cpu.pc = 0x5000;
+        cpu.set_interrupt_disable(false); // Clear I flag to enable IRQ
+        let initial_sp = cpu.sp;
+
+        // Trigger IRQ - should be processed because I flag is clear
+        cpu.irq(&mut bus);
+
+        // Verify interrupt was processed
+        assert_eq!(
+            cpu.pc, irq_handler_addr,
+            "PC should jump to IRQ handler when I flag is clear"
+        );
+        assert_eq!(
+            cpu.sp,
+            initial_sp.wrapping_sub(3),
+            "Stack should have PC and status pushed"
+        );
+        assert!(
+            cpu.get_interrupt_disable(),
+            "I flag should be set after IRQ"
         );
     }
 
@@ -1054,6 +1128,7 @@ mod tests {
         // Reset for IRQ test
         cpu.sp = 0xFD;
         cpu.pc = 0x2000;
+        cpu.set_interrupt_disable(false); // Ensure I flag is clear for IRQ
 
         // Test IRQ
         let sp_before_irq = cpu.sp;
