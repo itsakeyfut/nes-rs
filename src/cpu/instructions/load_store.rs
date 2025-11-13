@@ -21,7 +21,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
-    pub fn lda(&mut self, bus: &Bus, addr_result: &AddressingResult) {
+    pub fn lda(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.a = value;
         self.update_zero_and_negative_flags(value);
@@ -37,7 +37,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
-    pub fn ldx(&mut self, bus: &Bus, addr_result: &AddressingResult) {
+    pub fn ldx(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.x = value;
         self.update_zero_and_negative_flags(value);
@@ -53,7 +53,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
-    pub fn ldy(&mut self, bus: &Bus, addr_result: &AddressingResult) {
+    pub fn ldy(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.y = value;
         self.update_zero_and_negative_flags(value);
@@ -121,11 +121,11 @@ mod tests {
     #[test]
     fn test_lda_immediate() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Load 0x42 into accumulator
         let addr_result = AddressingResult::immediate(0x42);
-        cpu.lda(&bus, &addr_result);
+        cpu.lda(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x42, "Accumulator should be 0x42");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
@@ -135,11 +135,11 @@ mod tests {
     #[test]
     fn test_lda_zero() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Load 0x00 into accumulator
         let addr_result = AddressingResult::immediate(0x00);
-        cpu.lda(&bus, &addr_result);
+        cpu.lda(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x00, "Accumulator should be 0x00");
         assert!(cpu.get_zero(), "Zero flag should be set");
@@ -149,11 +149,11 @@ mod tests {
     #[test]
     fn test_lda_negative() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Load 0x80 (bit 7 set) into accumulator
         let addr_result = AddressingResult::immediate(0x80);
-        cpu.lda(&bus, &addr_result);
+        cpu.lda(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x80, "Accumulator should be 0x80");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
@@ -170,7 +170,7 @@ mod tests {
 
         // Load from memory
         let addr_result = AddressingResult::new(0x1234);
-        cpu.lda(&bus, &addr_result);
+        cpu.lda(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x42, "Accumulator should be 0x42");
     }
@@ -178,11 +178,11 @@ mod tests {
     #[test]
     fn test_ldx_immediate() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Load 0x42 into X register
         let addr_result = AddressingResult::immediate(0x42);
-        cpu.ldx(&bus, &addr_result);
+        cpu.ldx(&mut bus, &addr_result);
 
         assert_eq!(cpu.x, 0x42, "X register should be 0x42");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
@@ -192,11 +192,11 @@ mod tests {
     #[test]
     fn test_ldx_zero() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Load 0x00 into X register
         let addr_result = AddressingResult::immediate(0x00);
-        cpu.ldx(&bus, &addr_result);
+        cpu.ldx(&mut bus, &addr_result);
 
         assert_eq!(cpu.x, 0x00, "X register should be 0x00");
         assert!(cpu.get_zero(), "Zero flag should be set");
@@ -206,11 +206,11 @@ mod tests {
     #[test]
     fn test_ldx_negative() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Load 0xFF (bit 7 set) into X register
         let addr_result = AddressingResult::immediate(0xFF);
-        cpu.ldx(&bus, &addr_result);
+        cpu.ldx(&mut bus, &addr_result);
 
         assert_eq!(cpu.x, 0xFF, "X register should be 0xFF");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
@@ -220,11 +220,11 @@ mod tests {
     #[test]
     fn test_ldy_immediate() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Load 0x42 into Y register
         let addr_result = AddressingResult::immediate(0x42);
-        cpu.ldy(&bus, &addr_result);
+        cpu.ldy(&mut bus, &addr_result);
 
         assert_eq!(cpu.y, 0x42, "Y register should be 0x42");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
@@ -234,11 +234,11 @@ mod tests {
     #[test]
     fn test_ldy_zero() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Load 0x00 into Y register
         let addr_result = AddressingResult::immediate(0x00);
-        cpu.ldy(&bus, &addr_result);
+        cpu.ldy(&mut bus, &addr_result);
 
         assert_eq!(cpu.y, 0x00, "Y register should be 0x00");
         assert!(cpu.get_zero(), "Zero flag should be set");
@@ -248,11 +248,11 @@ mod tests {
     #[test]
     fn test_ldy_negative() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Load 0xF0 (bit 7 set) into Y register
         let addr_result = AddressingResult::immediate(0xF0);
-        cpu.ldy(&bus, &addr_result);
+        cpu.ldy(&mut bus, &addr_result);
 
         assert_eq!(cpu.y, 0xF0, "Y register should be 0xF0");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
@@ -361,7 +361,7 @@ mod tests {
 
         // Load immediate value
         let addr_result = AddressingResult::immediate(0x42);
-        cpu.lda(&bus, &addr_result);
+        cpu.lda(&mut bus, &addr_result);
 
         // Store to memory
         let store_addr = AddressingResult::new(0x1234);
@@ -374,7 +374,7 @@ mod tests {
         cpu.a = 0x00;
 
         // Load from memory
-        cpu.lda(&bus, &store_addr);
+        cpu.lda(&mut bus, &store_addr);
 
         // Verify accumulator
         assert_eq!(cpu.a, 0x42);

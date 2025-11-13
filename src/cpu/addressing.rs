@@ -134,7 +134,7 @@ impl super::Cpu {
     /// The operand is the byte immediately following the opcode.
     /// Format: LDA #$01
     /// Returns the immediate value and increments PC.
-    pub fn addr_immediate(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_immediate(&mut self, bus: &mut Bus) -> AddressingResult {
         let value = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
         AddressingResult::immediate(value)
@@ -149,7 +149,7 @@ impl super::Cpu {
     /// Uses only one byte for the address, limiting it to page 0.
     /// Format: LDA $80 (reads from $0080)
     /// Faster than absolute addressing (2 bytes vs 3 bytes).
-    pub fn addr_zero_page(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_zero_page(&mut self, bus: &mut Bus) -> AddressingResult {
         let addr = bus.read(self.pc) as u16;
         self.pc = self.pc.wrapping_add(1);
         AddressingResult::new(addr)
@@ -164,7 +164,7 @@ impl super::Cpu {
     /// Adds X register to zero page address with wrapping.
     /// Format: LDA $80,X (if X=5, reads from $0085)
     /// Wraps within zero page: $FF + 2 = $01 (not $0101).
-    pub fn addr_zero_page_x(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_zero_page_x(&mut self, bus: &mut Bus) -> AddressingResult {
         let base = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
 
@@ -182,7 +182,7 @@ impl super::Cpu {
     /// Adds Y register to zero page address with wrapping.
     /// Format: LDX $80,Y (if Y=5, reads from $0085)
     /// Wraps within zero page: $FF + 2 = $01 (not $0101).
-    pub fn addr_zero_page_y(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_zero_page_y(&mut self, bus: &mut Bus) -> AddressingResult {
         let base = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
 
@@ -201,7 +201,7 @@ impl super::Cpu {
     /// The offset is added to PC to calculate the branch target.
     /// Format: BNE $1234 (offset is calculated by assembler)
     /// Range: -128 to +127 bytes from the instruction after the branch.
-    pub fn addr_relative(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_relative(&mut self, bus: &mut Bus) -> AddressingResult {
         let offset = bus.read(self.pc) as i8;
         self.pc = self.pc.wrapping_add(1);
 
@@ -227,7 +227,7 @@ impl super::Cpu {
     /// Uses a full 16-bit address to access any location in memory.
     /// Format: LDA $8000 (reads from $8000)
     /// Address is stored in little-endian format (low byte first).
-    pub fn addr_absolute(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_absolute(&mut self, bus: &mut Bus) -> AddressingResult {
         let lo = bus.read(self.pc) as u16;
         self.pc = self.pc.wrapping_add(1);
 
@@ -247,7 +247,7 @@ impl super::Cpu {
     /// Adds X register to a 16-bit base address.
     /// Format: LDA $8000,X (if X=5, reads from $8005)
     /// Page boundary crossing adds an extra cycle for some instructions.
-    pub fn addr_absolute_x(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_absolute_x(&mut self, bus: &mut Bus) -> AddressingResult {
         let lo = bus.read(self.pc) as u16;
         self.pc = self.pc.wrapping_add(1);
 
@@ -272,7 +272,7 @@ impl super::Cpu {
     /// Adds Y register to a 16-bit base address.
     /// Format: LDA $8000,Y (if Y=5, reads from $8005)
     /// Page boundary crossing adds an extra cycle for some instructions.
-    pub fn addr_absolute_y(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_absolute_y(&mut self, bus: &mut Bus) -> AddressingResult {
         let lo = bus.read(self.pc) as u16;
         self.pc = self.pc.wrapping_add(1);
 
@@ -300,7 +300,7 @@ impl super::Cpu {
     /// IMPORTANT BUG: The 6502 has a bug with page boundary wrapping.
     /// If the pointer is at $xxFF, the high byte is read from $xx00 instead of $(xx+1)00.
     /// For example: JMP ($02FF) reads low byte from $02FF and high byte from $0200 (not $0300).
-    pub fn addr_indirect(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_indirect(&mut self, bus: &mut Bus) -> AddressingResult {
         let ptr_lo = bus.read(self.pc) as u16;
         self.pc = self.pc.wrapping_add(1);
 
@@ -341,7 +341,7 @@ impl super::Cpu {
     /// 3. Use pointer as the effective address
     ///
     /// Used primarily with X register for table lookups.
-    pub fn addr_indexed_indirect(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_indexed_indirect(&mut self, bus: &mut Bus) -> AddressingResult {
         let base = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
 
@@ -374,7 +374,7 @@ impl super::Cpu {
     ///
     /// Used for accessing data structures with a base pointer.
     /// Page boundary crossing adds an extra cycle for some instructions.
-    pub fn addr_indirect_indexed(&mut self, bus: &Bus) -> AddressingResult {
+    pub fn addr_indirect_indexed(&mut self, bus: &mut Bus) -> AddressingResult {
         let ptr = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
 
@@ -444,8 +444,8 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.pc = 0x0100; // Use RAM address
 
-        let bus = create_test_bus(&[(0x0100, 0x42)]);
-        let result = cpu.addr_immediate(&bus);
+        let mut bus = create_test_bus(&[(0x0100, 0x42)]);
+        let result = cpu.addr_immediate(&mut bus);
 
         assert_eq!(result.value, Some(0x42));
         assert_eq!(cpu.pc, 0x0101);
@@ -461,8 +461,8 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.pc = 0x0100;
 
-        let bus = create_test_bus(&[(0x0100, 0x80)]);
-        let result = cpu.addr_zero_page(&bus);
+        let mut bus = create_test_bus(&[(0x0100, 0x80)]);
+        let result = cpu.addr_zero_page(&mut bus);
 
         assert_eq!(result.address, 0x0080);
         assert_eq!(cpu.pc, 0x0101);
@@ -479,8 +479,8 @@ mod tests {
         cpu.pc = 0x0100;
         cpu.x = 0x05;
 
-        let bus = create_test_bus(&[(0x0100, 0x80)]);
-        let result = cpu.addr_zero_page_x(&bus);
+        let mut bus = create_test_bus(&[(0x0100, 0x80)]);
+        let result = cpu.addr_zero_page_x(&mut bus);
 
         assert_eq!(result.address, 0x0085);
         assert_eq!(cpu.pc, 0x0101);
@@ -493,8 +493,8 @@ mod tests {
         cpu.x = 0x10;
 
         // $FF + $10 = $0F (wraps within zero page)
-        let bus = create_test_bus(&[(0x0100, 0xFF)]);
-        let result = cpu.addr_zero_page_x(&bus);
+        let mut bus = create_test_bus(&[(0x0100, 0xFF)]);
+        let result = cpu.addr_zero_page_x(&mut bus);
 
         assert_eq!(result.address, 0x000F);
     }
@@ -509,8 +509,8 @@ mod tests {
         cpu.pc = 0x0100;
         cpu.y = 0x05;
 
-        let bus = create_test_bus(&[(0x0100, 0x80)]);
-        let result = cpu.addr_zero_page_y(&bus);
+        let mut bus = create_test_bus(&[(0x0100, 0x80)]);
+        let result = cpu.addr_zero_page_y(&mut bus);
 
         assert_eq!(result.address, 0x0085);
         assert_eq!(cpu.pc, 0x0101);
@@ -523,8 +523,8 @@ mod tests {
         cpu.y = 0x10;
 
         // $FF + $10 = $0F (wraps within zero page)
-        let bus = create_test_bus(&[(0x0100, 0xFF)]);
-        let result = cpu.addr_zero_page_y(&bus);
+        let mut bus = create_test_bus(&[(0x0100, 0xFF)]);
+        let result = cpu.addr_zero_page_y(&mut bus);
 
         assert_eq!(result.address, 0x000F);
     }
@@ -539,8 +539,8 @@ mod tests {
         cpu.pc = 0x0200;
 
         // Positive offset: +10
-        let bus = create_test_bus(&[(0x0200, 0x0A)]);
-        let result = cpu.addr_relative(&bus);
+        let mut bus = create_test_bus(&[(0x0200, 0x0A)]);
+        let result = cpu.addr_relative(&mut bus);
 
         assert_eq!(result.address, 0x020B); // 0x0201 + 0x0A
         assert_eq!(cpu.pc, 0x0201);
@@ -553,8 +553,8 @@ mod tests {
         cpu.pc = 0x0250;
 
         // Negative offset: -16 (0xF0 in two's complement)
-        let bus = create_test_bus(&[(0x0250, 0xF0)]);
-        let result = cpu.addr_relative(&bus);
+        let mut bus = create_test_bus(&[(0x0250, 0xF0)]);
+        let result = cpu.addr_relative(&mut bus);
 
         assert_eq!(result.address, 0x0241); // 0x0251 - 0x10
         assert_eq!(cpu.pc, 0x0251);
@@ -567,8 +567,8 @@ mod tests {
         cpu.pc = 0x01FE;
 
         // Jump forward across page boundary
-        let bus = create_test_bus(&[(0x01FE, 0x05)]);
-        let result = cpu.addr_relative(&bus);
+        let mut bus = create_test_bus(&[(0x01FE, 0x05)]);
+        let result = cpu.addr_relative(&mut bus);
 
         assert_eq!(result.address, 0x0204); // 0x01FF + 0x05
         assert!(result.page_crossed);
@@ -584,8 +584,8 @@ mod tests {
         cpu.pc = 0x0200;
 
         // Address $0734 stored as little-endian: $34 $07
-        let bus = create_test_bus(&[(0x0200, 0x34), (0x0201, 0x07)]);
-        let result = cpu.addr_absolute(&bus);
+        let mut bus = create_test_bus(&[(0x0200, 0x34), (0x0201, 0x07)]);
+        let result = cpu.addr_absolute(&mut bus);
 
         assert_eq!(result.address, 0x0734);
         assert_eq!(cpu.pc, 0x0202);
@@ -603,8 +603,8 @@ mod tests {
         cpu.x = 0x05;
 
         // Base address $0434 + X(5) = $0439
-        let bus = create_test_bus(&[(0x0200, 0x34), (0x0201, 0x04)]);
-        let result = cpu.addr_absolute_x(&bus);
+        let mut bus = create_test_bus(&[(0x0200, 0x34), (0x0201, 0x04)]);
+        let result = cpu.addr_absolute_x(&mut bus);
 
         assert_eq!(result.address, 0x0439);
         assert_eq!(cpu.pc, 0x0202);
@@ -618,8 +618,8 @@ mod tests {
         cpu.x = 0x10;
 
         // Base address $04FF + X(16) = $050F (crosses page boundary)
-        let bus = create_test_bus(&[(0x0200, 0xFF), (0x0201, 0x04)]);
-        let result = cpu.addr_absolute_x(&bus);
+        let mut bus = create_test_bus(&[(0x0200, 0xFF), (0x0201, 0x04)]);
+        let result = cpu.addr_absolute_x(&mut bus);
 
         assert_eq!(result.address, 0x050F);
         assert!(result.page_crossed);
@@ -636,8 +636,8 @@ mod tests {
         cpu.y = 0x05;
 
         // Base address $0434 + Y(5) = $0439
-        let bus = create_test_bus(&[(0x0200, 0x34), (0x0201, 0x04)]);
-        let result = cpu.addr_absolute_y(&bus);
+        let mut bus = create_test_bus(&[(0x0200, 0x34), (0x0201, 0x04)]);
+        let result = cpu.addr_absolute_y(&mut bus);
 
         assert_eq!(result.address, 0x0439);
         assert_eq!(cpu.pc, 0x0202);
@@ -651,8 +651,8 @@ mod tests {
         cpu.y = 0x10;
 
         // Base address $04FF + Y(16) = $050F (crosses page boundary)
-        let bus = create_test_bus(&[(0x0200, 0xFF), (0x0201, 0x04)]);
-        let result = cpu.addr_absolute_y(&bus);
+        let mut bus = create_test_bus(&[(0x0200, 0xFF), (0x0201, 0x04)]);
+        let result = cpu.addr_absolute_y(&mut bus);
 
         assert_eq!(result.address, 0x050F);
         assert!(result.page_crossed);
@@ -668,13 +668,13 @@ mod tests {
         cpu.pc = 0x0200;
 
         // Pointer at $0120 contains address $0634
-        let bus = create_test_bus(&[
+        let mut bus = create_test_bus(&[
             (0x0200, 0x20), // Pointer low byte
             (0x0201, 0x01), // Pointer high byte
             (0x0120, 0x34), // Target address low byte
             (0x0121, 0x06), // Target address high byte
         ]);
-        let result = cpu.addr_indirect(&bus);
+        let result = cpu.addr_indirect(&mut bus);
 
         assert_eq!(result.address, 0x0634);
         assert_eq!(cpu.pc, 0x0202);
@@ -687,13 +687,13 @@ mod tests {
 
         // Test the 6502 page boundary bug
         // Pointer at $01FF should read high byte from $0100 (not $0200)
-        let bus = create_test_bus(&[
+        let mut bus = create_test_bus(&[
             (0x0200, 0xFF), // Pointer low byte
             (0x0201, 0x01), // Pointer high byte
             (0x01FF, 0x34), // Target address low byte
             (0x0100, 0x06), // Target address high byte (wraps to start of page)
         ]);
-        let result = cpu.addr_indirect(&bus);
+        let result = cpu.addr_indirect(&mut bus);
 
         assert_eq!(result.address, 0x0634);
     }
@@ -710,12 +710,12 @@ mod tests {
 
         // Base $40 + X(5) = $45
         // Pointer at $45 contains address $0634
-        let bus = create_test_bus(&[
+        let mut bus = create_test_bus(&[
             (0x0200, 0x40), // Base zero page address
             (0x0045, 0x34), // Target address low byte
             (0x0046, 0x06), // Target address high byte
         ]);
-        let result = cpu.addr_indexed_indirect(&bus);
+        let result = cpu.addr_indexed_indirect(&mut bus);
 
         assert_eq!(result.address, 0x0634);
         assert_eq!(cpu.pc, 0x0201);
@@ -728,12 +728,12 @@ mod tests {
         cpu.x = 0x10;
 
         // Base $FF + X(16) = $0F (wraps within zero page)
-        let bus = create_test_bus(&[
+        let mut bus = create_test_bus(&[
             (0x0200, 0xFF), // Base zero page address
             (0x000F, 0x34), // Target address low byte
             (0x0010, 0x06), // Target address high byte
         ]);
-        let result = cpu.addr_indexed_indirect(&bus);
+        let result = cpu.addr_indexed_indirect(&mut bus);
 
         assert_eq!(result.address, 0x0634);
     }
@@ -745,12 +745,12 @@ mod tests {
         cpu.x = 0x00;
 
         // Pointer at $FF should read high byte from $00 (wraps within zero page)
-        let bus = create_test_bus(&[
+        let mut bus = create_test_bus(&[
             (0x0200, 0xFF), // Base zero page address
             (0x00FF, 0x34), // Target address low byte
             (0x0000, 0x06), // Target address high byte (wraps to $00)
         ]);
-        let result = cpu.addr_indexed_indirect(&bus);
+        let result = cpu.addr_indexed_indirect(&mut bus);
 
         assert_eq!(result.address, 0x0634);
     }
@@ -767,12 +767,12 @@ mod tests {
 
         // Pointer at $40 contains $0434
         // $0434 + Y(5) = $0439
-        let bus = create_test_bus(&[
+        let mut bus = create_test_bus(&[
             (0x0200, 0x40), // Zero page pointer address
             (0x0040, 0x34), // Base address low byte
             (0x0041, 0x04), // Base address high byte
         ]);
-        let result = cpu.addr_indirect_indexed(&bus);
+        let result = cpu.addr_indirect_indexed(&mut bus);
 
         assert_eq!(result.address, 0x0439);
         assert_eq!(cpu.pc, 0x0201);
@@ -787,12 +787,12 @@ mod tests {
 
         // Pointer at $40 contains $04FF
         // $04FF + Y(16) = $050F (crosses page boundary)
-        let bus = create_test_bus(&[
+        let mut bus = create_test_bus(&[
             (0x0200, 0x40), // Zero page pointer address
             (0x0040, 0xFF), // Base address low byte
             (0x0041, 0x04), // Base address high byte
         ]);
-        let result = cpu.addr_indirect_indexed(&bus);
+        let result = cpu.addr_indirect_indexed(&mut bus);
 
         assert_eq!(result.address, 0x050F);
         assert!(result.page_crossed);
@@ -805,12 +805,12 @@ mod tests {
         cpu.y = 0x05;
 
         // Pointer at $FF should read high byte from $00 (wraps within zero page)
-        let bus = create_test_bus(&[
+        let mut bus = create_test_bus(&[
             (0x0200, 0xFF), // Zero page pointer address
             (0x00FF, 0x34), // Base address low byte
             (0x0000, 0x04), // Base address high byte (wraps to $00)
         ]);
-        let result = cpu.addr_indirect_indexed(&bus);
+        let result = cpu.addr_indirect_indexed(&mut bus);
 
         assert_eq!(result.address, 0x0439);
     }

@@ -26,7 +26,7 @@ impl crate::cpu::Cpu {
     /// If the addressing result contains an immediate value, returns that value.
     /// Otherwise, reads from the address specified in the addressing result.
     #[inline]
-    pub(crate) fn read_operand(&self, bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub(crate) fn read_operand(&self, bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         if let Some(value) = addr_result.value {
             value
         } else {

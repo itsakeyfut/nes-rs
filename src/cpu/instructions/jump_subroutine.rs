@@ -39,7 +39,7 @@ impl Cpu {
     /// # Returns
     /// The byte pulled from the stack
     #[inline]
-    pub(crate) fn stack_pop(&mut self, bus: &Bus) -> u8 {
+    pub(crate) fn stack_pop(&mut self, bus: &mut Bus) -> u8 {
         self.sp = self.sp.wrapping_add(1);
         let addr = STACK_BASE | (self.sp as u16);
         bus.read(addr)
@@ -72,7 +72,7 @@ impl Cpu {
     /// # Returns
     /// The 16-bit value pulled from the stack
     #[inline]
-    pub(crate) fn stack_pop_u16(&mut self, bus: &Bus) -> u16 {
+    pub(crate) fn stack_pop_u16(&mut self, bus: &mut Bus) -> u16 {
         let lo = self.stack_pop(bus) as u16;
         let hi = self.stack_pop(bus) as u16;
         (hi << 8) | lo
@@ -115,7 +115,7 @@ impl Cpu {
     /// If the pointer is at a page boundary ($xxFF), the high byte
     /// wraps to $xx00 instead of $(xx+1)00. This bug is emulated
     /// in the addr_indirect addressing mode implementation.
-    pub fn jmp(&mut self, _bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub fn jmp(&mut self, _bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         self.pc = addr_result.address;
         0
     }
@@ -197,7 +197,7 @@ impl Cpu {
     /// # Implementation Note
     /// Since JSR pushes PC-1, RTS must add 1 to the pulled address to get
     /// the correct return location. This is a 6502 convention.
-    pub fn rts(&mut self, bus: &Bus, _addr_result: &AddressingResult) -> u8 {
+    pub fn rts(&mut self, bus: &mut Bus, _addr_result: &AddressingResult) -> u8 {
         // Pull return address from stack
         let return_addr = self.stack_pop_u16(bus);
 
@@ -234,11 +234,11 @@ mod tests {
         assert_eq!(cpu.sp, 0xFB, "SP should decrement after second push");
 
         // Pop bytes (LIFO order)
-        let value1 = cpu.stack_pop(&bus);
+        let value1 = cpu.stack_pop(&mut bus);
         assert_eq!(value1, 0x13, "Should pop most recent value first");
         assert_eq!(cpu.sp, 0xFC, "SP should increment after pop");
 
-        let value2 = cpu.stack_pop(&bus);
+        let value2 = cpu.stack_pop(&mut bus);
         assert_eq!(value2, 0x42, "Should pop first value second");
         assert_eq!(cpu.sp, 0xFD, "SP should be back to initial value");
     }
@@ -259,7 +259,7 @@ mod tests {
         );
 
         // Pop the 16-bit value
-        let value = cpu.stack_pop_u16(&bus);
+        let value = cpu.stack_pop_u16(&mut bus);
         assert_eq!(value, 0x1234, "Should pop the same 16-bit value");
         assert_eq!(cpu.sp, initial_sp, "SP should be back to initial value");
     }
@@ -281,11 +281,11 @@ mod tests {
         assert_eq!(cpu.sp, 0xFF, "SP should wrap to 0xFF");
 
         // Pop should restore values correctly
-        let value1 = cpu.stack_pop(&bus);
+        let value1 = cpu.stack_pop(&mut bus);
         assert_eq!(value1, 0x13);
         assert_eq!(cpu.sp, 0x00);
 
-        let value2 = cpu.stack_pop(&bus);
+        let value2 = cpu.stack_pop(&mut bus);
         assert_eq!(value2, 0x42);
         assert_eq!(cpu.sp, 0x01);
     }
@@ -316,13 +316,13 @@ mod tests {
     #[test]
     fn test_jmp_absolute() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.pc = 0x0200;
 
         // Jump to $8000
         let addr_result = AddressingResult::new(0x8000);
-        let cycles = cpu.jmp(&bus, &addr_result);
+        let cycles = cpu.jmp(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x8000, "PC should jump to target address");
         assert_eq!(cycles, 0, "JMP should not return additional cycles");
@@ -331,13 +331,13 @@ mod tests {
     #[test]
     fn test_jmp_forward() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.pc = 0x0200;
 
         // Jump forward
         let addr_result = AddressingResult::new(0x0300);
-        cpu.jmp(&bus, &addr_result);
+        cpu.jmp(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0300);
     }
@@ -345,13 +345,13 @@ mod tests {
     #[test]
     fn test_jmp_backward() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.pc = 0x0300;
 
         // Jump backward
         let addr_result = AddressingResult::new(0x0200);
-        cpu.jmp(&bus, &addr_result);
+        cpu.jmp(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200);
     }
@@ -359,13 +359,13 @@ mod tests {
     #[test]
     fn test_jmp_to_zero_page() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.pc = 0x8000;
 
         // Jump to zero page
         let addr_result = AddressingResult::new(0x0080);
-        cpu.jmp(&bus, &addr_result);
+        cpu.jmp(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0080);
     }
@@ -386,10 +386,10 @@ mod tests {
         bus.write(0x0121, 0x06); // Target address high byte
 
         // Use addr_indirect to get the target address
-        let addr_result = cpu.addr_indirect(&bus);
+        let addr_result = cpu.addr_indirect(&mut bus);
 
         // Execute JMP
-        cpu.jmp(&bus, &addr_result);
+        cpu.jmp(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0634, "Should jump to address from pointer");
     }
@@ -414,7 +414,7 @@ mod tests {
         bus.write(0x0201, 0x01); // Pointer high byte
 
         // Use addr_indirect to get the target address (bug is emulated here)
-        let addr_result = cpu.addr_indirect(&bus);
+        let addr_result = cpu.addr_indirect(&mut bus);
 
         assert_eq!(
             addr_result.address, 0x0634,
@@ -422,14 +422,14 @@ mod tests {
         );
 
         // Execute JMP
-        cpu.jmp(&bus, &addr_result);
+        cpu.jmp(&mut bus, &addr_result);
         assert_eq!(cpu.pc, 0x0634);
     }
 
     #[test]
     fn test_jmp_no_flag_modification() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Set all flags to known state
         cpu.set_carry(true);
@@ -442,7 +442,7 @@ mod tests {
 
         // Execute JMP
         let addr_result = AddressingResult::new(0x8000);
-        cpu.jmp(&bus, &addr_result);
+        cpu.jmp(&mut bus, &addr_result);
 
         assert_eq!(
             cpu.status, initial_status,
@@ -553,7 +553,7 @@ mod tests {
 
         // Execute RTS
         let addr_result = AddressingResult::new(0); // Unused for RTS
-        let cycles = cpu.rts(&bus, &addr_result);
+        let cycles = cpu.rts(&mut bus, &addr_result);
 
         assert_eq!(
             cpu.pc,
@@ -587,7 +587,7 @@ mod tests {
 
         // Execute RTS
         let addr_result = AddressingResult::new(0);
-        cpu.rts(&bus, &addr_result);
+        cpu.rts(&mut bus, &addr_result);
 
         assert_eq!(
             cpu.status, initial_status,
@@ -618,7 +618,7 @@ mod tests {
 
         // Execute RTS
         let addr_result = AddressingResult::new(0);
-        cpu.rts(&bus, &addr_result);
+        cpu.rts(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, initial_pc, "Should return to original PC");
         assert_eq!(cpu.sp, initial_sp, "SP should be restored");
@@ -648,11 +648,11 @@ mod tests {
 
         // Return from nested subroutine
         let addr_result = AddressingResult::new(0);
-        cpu.rts(&bus, &addr_result);
+        cpu.rts(&mut bus, &addr_result);
         assert_eq!(cpu.pc, first_sub_pc, "Should return to first subroutine");
 
         // Return from first subroutine
-        cpu.rts(&bus, &addr_result);
+        cpu.rts(&mut bus, &addr_result);
         assert_eq!(cpu.pc, main_pc, "Should return to main program");
         assert_eq!(cpu.sp, initial_sp, "SP should be fully restored");
     }
@@ -674,15 +674,15 @@ mod tests {
         cpu.stack_push(&mut bus, 0x42);
         cpu.stack_push(&mut bus, 0x13);
 
-        let val1 = cpu.stack_pop(&bus);
-        let val2 = cpu.stack_pop(&bus);
+        let val1 = cpu.stack_pop(&mut bus);
+        let val2 = cpu.stack_pop(&mut bus);
 
         assert_eq!(val1, 0x13);
         assert_eq!(val2, 0x42);
 
         // RTS should still work correctly
         let addr_result = AddressingResult::new(0);
-        cpu.rts(&bus, &addr_result);
+        cpu.rts(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, main_pc, "Should return to correct address");
     }
@@ -713,7 +713,7 @@ mod tests {
         // Return from all 10 subroutines
         for _ in 0..10 {
             let addr_result = AddressingResult::new(0);
-            cpu.rts(&bus, &addr_result);
+            cpu.rts(&mut bus, &addr_result);
         }
 
         // SP should be back to initial value
@@ -735,7 +735,7 @@ mod tests {
 
         // And return should work
         let addr_result = AddressingResult::new(0);
-        cpu.rts(&bus, &addr_result);
+        cpu.rts(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x8003);
     }
@@ -753,7 +753,7 @@ mod tests {
 
         // Execute RTS
         let addr_result = AddressingResult::new(0);
-        cpu.rts(&bus, &addr_result);
+        cpu.rts(&mut bus, &addr_result);
 
         // PC should be 0x1234 + 1 = 0x1235
         assert_eq!(
@@ -775,7 +775,7 @@ mod tests {
         cpu.jsr(&mut bus, &addr_result);
 
         // Read the value pushed to stack
-        let pushed_addr = cpu.stack_pop_u16(&bus);
+        let pushed_addr = cpu.stack_pop_u16(&mut bus);
 
         // Should be PC - 1 = 0x0202
         assert_eq!(pushed_addr, 0x0202, "JSR must push PC-1 (6502 convention)");

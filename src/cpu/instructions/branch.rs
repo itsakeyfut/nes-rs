@@ -40,7 +40,7 @@ impl Cpu {
     /// CMP #$10    ; Compare A with $10
     /// BCC label   ; Branch if A < $10 (carry clear)
     /// ```
-    pub fn bcc(&mut self, _bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub fn bcc(&mut self, _bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         self.branch(!self.get_carry(), addr_result)
     }
 
@@ -73,7 +73,7 @@ impl Cpu {
     /// CMP #$10    ; Compare A with $10
     /// BCS label   ; Branch if A >= $10 (carry set)
     /// ```
-    pub fn bcs(&mut self, _bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub fn bcs(&mut self, _bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         self.branch(self.get_carry(), addr_result)
     }
 
@@ -106,7 +106,7 @@ impl Cpu {
     /// LDA counter ; Load counter value
     /// BEQ done    ; Branch if counter is zero
     /// ```
-    pub fn beq(&mut self, _bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub fn beq(&mut self, _bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         self.branch(self.get_zero(), addr_result)
     }
 
@@ -140,7 +140,7 @@ impl Cpu {
     ///     DEX         ; Decrement X
     ///     BNE loop    ; Continue loop while X != 0
     /// ```
-    pub fn bne(&mut self, _bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub fn bne(&mut self, _bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         self.branch(!self.get_zero(), addr_result)
     }
 
@@ -173,7 +173,7 @@ impl Cpu {
     /// LDA value   ; Load value
     /// BMI negative ; Branch if bit 7 is set (negative)
     /// ```
-    pub fn bmi(&mut self, _bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub fn bmi(&mut self, _bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         self.branch(self.get_negative(), addr_result)
     }
 
@@ -206,7 +206,7 @@ impl Cpu {
     /// LDA value   ; Load value
     /// BPL positive ; Branch if bit 7 is clear (positive)
     /// ```
-    pub fn bpl(&mut self, _bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub fn bpl(&mut self, _bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         self.branch(!self.get_negative(), addr_result)
     }
 
@@ -239,7 +239,7 @@ impl Cpu {
     /// ADC #$10    ; Add with carry
     /// BVC no_overflow ; Branch if no signed overflow
     /// ```
-    pub fn bvc(&mut self, _bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub fn bvc(&mut self, _bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         self.branch(!self.get_overflow(), addr_result)
     }
 
@@ -272,7 +272,7 @@ impl Cpu {
     /// ADC #$70    ; Add with carry
     /// BVS overflow ; Branch if signed overflow occurred
     /// ```
-    pub fn bvs(&mut self, _bus: &Bus, addr_result: &AddressingResult) -> u8 {
+    pub fn bvs(&mut self, _bus: &mut Bus, addr_result: &AddressingResult) -> u8 {
         self.branch(self.get_overflow(), addr_result)
     }
 
@@ -329,13 +329,13 @@ mod tests {
     #[test]
     fn test_bcc_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_carry(false);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bcc(&bus, &addr_result);
+        let cycles = cpu.bcc(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0250, "PC should be updated to branch target");
         assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -344,13 +344,13 @@ mod tests {
     #[test]
     fn test_bcc_not_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_carry(true);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bcc(&bus, &addr_result);
+        let cycles = cpu.bcc(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "PC should not change");
         assert_eq!(cycles, 0, "Should take no additional cycles");
@@ -359,13 +359,13 @@ mod tests {
     #[test]
     fn test_bcc_page_cross() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_carry(false);
         cpu.pc = 0x01FF;
 
         let addr_result = AddressingResult::new(0x0250).with_page_cross(true);
-        let cycles = cpu.bcc(&bus, &addr_result);
+        let cycles = cpu.bcc(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0250, "PC should be updated to branch target");
         assert_eq!(cycles, 2, "Should take 2 additional cycles on page cross");
@@ -378,13 +378,13 @@ mod tests {
     #[test]
     fn test_bcs_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_carry(true);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bcs(&bus, &addr_result);
+        let cycles = cpu.bcs(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0250, "PC should be updated to branch target");
         assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -393,13 +393,13 @@ mod tests {
     #[test]
     fn test_bcs_not_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_carry(false);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bcs(&bus, &addr_result);
+        let cycles = cpu.bcs(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "PC should not change");
         assert_eq!(cycles, 0, "Should take no additional cycles");
@@ -412,13 +412,13 @@ mod tests {
     #[test]
     fn test_beq_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_zero(true);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.beq(&bus, &addr_result);
+        let cycles = cpu.beq(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0250, "PC should be updated to branch target");
         assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -427,13 +427,13 @@ mod tests {
     #[test]
     fn test_beq_not_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_zero(false);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.beq(&bus, &addr_result);
+        let cycles = cpu.beq(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "PC should not change");
         assert_eq!(cycles, 0, "Should take no additional cycles");
@@ -446,13 +446,13 @@ mod tests {
     #[test]
     fn test_bne_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_zero(false);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bne(&bus, &addr_result);
+        let cycles = cpu.bne(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0250, "PC should be updated to branch target");
         assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -461,13 +461,13 @@ mod tests {
     #[test]
     fn test_bne_not_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_zero(true);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bne(&bus, &addr_result);
+        let cycles = cpu.bne(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "PC should not change");
         assert_eq!(cycles, 0, "Should take no additional cycles");
@@ -476,7 +476,7 @@ mod tests {
     #[test]
     fn test_bne_loop_simulation() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Simulate a typical loop: DEX / BNE loop
         cpu.x = 5;
@@ -487,7 +487,7 @@ mod tests {
             cpu.set_zero(false);
 
             let addr_result = AddressingResult::new(0x0200);
-            let cycles = cpu.bne(&bus, &addr_result);
+            let cycles = cpu.bne(&mut bus, &addr_result);
 
             assert_eq!(cpu.pc, 0x0200, "Should branch back to loop start");
             assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -499,7 +499,7 @@ mod tests {
         cpu.pc = 0x0202;
 
         let addr_result = AddressingResult::new(0x0200);
-        let cycles = cpu.bne(&bus, &addr_result);
+        let cycles = cpu.bne(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0202, "Should not branch when zero");
         assert_eq!(cycles, 0, "Should take no additional cycles");
@@ -512,13 +512,13 @@ mod tests {
     #[test]
     fn test_bmi_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_negative(true);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bmi(&bus, &addr_result);
+        let cycles = cpu.bmi(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0250, "PC should be updated to branch target");
         assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -527,13 +527,13 @@ mod tests {
     #[test]
     fn test_bmi_not_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_negative(false);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bmi(&bus, &addr_result);
+        let cycles = cpu.bmi(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "PC should not change");
         assert_eq!(cycles, 0, "Should take no additional cycles");
@@ -546,13 +546,13 @@ mod tests {
     #[test]
     fn test_bpl_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_negative(false);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bpl(&bus, &addr_result);
+        let cycles = cpu.bpl(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0250, "PC should be updated to branch target");
         assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -561,13 +561,13 @@ mod tests {
     #[test]
     fn test_bpl_not_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_negative(true);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bpl(&bus, &addr_result);
+        let cycles = cpu.bpl(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "PC should not change");
         assert_eq!(cycles, 0, "Should take no additional cycles");
@@ -580,13 +580,13 @@ mod tests {
     #[test]
     fn test_bvc_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_overflow(false);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bvc(&bus, &addr_result);
+        let cycles = cpu.bvc(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0250, "PC should be updated to branch target");
         assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -595,13 +595,13 @@ mod tests {
     #[test]
     fn test_bvc_not_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_overflow(true);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bvc(&bus, &addr_result);
+        let cycles = cpu.bvc(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "PC should not change");
         assert_eq!(cycles, 0, "Should take no additional cycles");
@@ -614,13 +614,13 @@ mod tests {
     #[test]
     fn test_bvs_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_overflow(true);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bvs(&bus, &addr_result);
+        let cycles = cpu.bvs(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0250, "PC should be updated to branch target");
         assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -629,13 +629,13 @@ mod tests {
     #[test]
     fn test_bvs_not_taken() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_overflow(false);
         cpu.pc = 0x0200;
 
         let addr_result = AddressingResult::new(0x0250);
-        let cycles = cpu.bvs(&bus, &addr_result);
+        let cycles = cpu.bvs(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "PC should not change");
         assert_eq!(cycles, 0, "Should take no additional cycles");
@@ -648,14 +648,14 @@ mod tests {
     #[test]
     fn test_branch_backward() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_zero(true);
         cpu.pc = 0x0250;
 
         // Branch backward to earlier address
         let addr_result = AddressingResult::new(0x0200);
-        let cycles = cpu.beq(&bus, &addr_result);
+        let cycles = cpu.beq(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "Should branch backward");
         assert_eq!(cycles, 1, "Should take 1 additional cycle");
@@ -664,14 +664,14 @@ mod tests {
     #[test]
     fn test_branch_backward_page_cross() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_zero(true);
         cpu.pc = 0x0200;
 
         // Branch backward across page boundary
         let addr_result = AddressingResult::new(0x01F0).with_page_cross(true);
-        let cycles = cpu.beq(&bus, &addr_result);
+        let cycles = cpu.beq(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x01F0, "Should branch backward across page");
         assert_eq!(cycles, 2, "Should take 2 additional cycles on page cross");
@@ -680,7 +680,7 @@ mod tests {
     #[test]
     fn test_branch_no_flag_modification() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Set all flags to known state
         cpu.set_carry(true);
@@ -693,10 +693,10 @@ mod tests {
 
         // Execute various branches
         let addr_result = AddressingResult::new(0x0250);
-        cpu.bcs(&bus, &addr_result);
-        cpu.bne(&bus, &addr_result);
-        cpu.bpl(&bus, &addr_result);
-        cpu.bvs(&bus, &addr_result);
+        cpu.bcs(&mut bus, &addr_result);
+        cpu.bne(&mut bus, &addr_result);
+        cpu.bpl(&mut bus, &addr_result);
+        cpu.bvs(&mut bus, &addr_result);
 
         assert_eq!(
             cpu.status, initial_status,
@@ -707,57 +707,57 @@ mod tests {
     #[test]
     fn test_all_branches_comprehensive() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Test BCC/BCS
         cpu.pc = 0x0200;
         cpu.set_carry(false);
-        let cycles = cpu.bcc(&bus, &AddressingResult::new(0x0210));
+        let cycles = cpu.bcc(&mut bus, &AddressingResult::new(0x0210));
         assert_eq!(cpu.pc, 0x0210);
         assert_eq!(cycles, 1);
 
         cpu.pc = 0x0200;
         cpu.set_carry(true);
-        let cycles = cpu.bcs(&bus, &AddressingResult::new(0x0220));
+        let cycles = cpu.bcs(&mut bus, &AddressingResult::new(0x0220));
         assert_eq!(cpu.pc, 0x0220);
         assert_eq!(cycles, 1);
 
         // Test BEQ/BNE
         cpu.pc = 0x0200;
         cpu.set_zero(true);
-        let cycles = cpu.beq(&bus, &AddressingResult::new(0x0230));
+        let cycles = cpu.beq(&mut bus, &AddressingResult::new(0x0230));
         assert_eq!(cpu.pc, 0x0230);
         assert_eq!(cycles, 1);
 
         cpu.pc = 0x0200;
         cpu.set_zero(false);
-        let cycles = cpu.bne(&bus, &AddressingResult::new(0x0240));
+        let cycles = cpu.bne(&mut bus, &AddressingResult::new(0x0240));
         assert_eq!(cpu.pc, 0x0240);
         assert_eq!(cycles, 1);
 
         // Test BMI/BPL
         cpu.pc = 0x0200;
         cpu.set_negative(true);
-        let cycles = cpu.bmi(&bus, &AddressingResult::new(0x0250));
+        let cycles = cpu.bmi(&mut bus, &AddressingResult::new(0x0250));
         assert_eq!(cpu.pc, 0x0250);
         assert_eq!(cycles, 1);
 
         cpu.pc = 0x0200;
         cpu.set_negative(false);
-        let cycles = cpu.bpl(&bus, &AddressingResult::new(0x0260));
+        let cycles = cpu.bpl(&mut bus, &AddressingResult::new(0x0260));
         assert_eq!(cpu.pc, 0x0260);
         assert_eq!(cycles, 1);
 
         // Test BVC/BVS
         cpu.pc = 0x0200;
         cpu.set_overflow(false);
-        let cycles = cpu.bvc(&bus, &AddressingResult::new(0x0270));
+        let cycles = cpu.bvc(&mut bus, &AddressingResult::new(0x0270));
         assert_eq!(cpu.pc, 0x0270);
         assert_eq!(cycles, 1);
 
         cpu.pc = 0x0200;
         cpu.set_overflow(true);
-        let cycles = cpu.bvs(&bus, &AddressingResult::new(0x0280));
+        let cycles = cpu.bvs(&mut bus, &AddressingResult::new(0x0280));
         assert_eq!(cpu.pc, 0x0280);
         assert_eq!(cycles, 1);
     }
@@ -765,14 +765,14 @@ mod tests {
     #[test]
     fn test_branch_to_same_address() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.set_zero(true);
         cpu.pc = 0x0200;
 
         // Branch to same address (infinite loop pattern)
         let addr_result = AddressingResult::new(0x0200);
-        let cycles = cpu.beq(&bus, &addr_result);
+        let cycles = cpu.beq(&mut bus, &addr_result);
 
         assert_eq!(cpu.pc, 0x0200, "Should branch to same address");
         assert_eq!(cycles, 1, "Should still take 1 cycle");
@@ -783,42 +783,42 @@ mod tests {
         // Test realistic scenario: Multiple branches in sequence with varying cycle counts
         // This simulates typical 6502 code patterns where cycle timing matters
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         let mut total_cycles = 0;
 
         // Scenario 1: Branch not taken (0 extra cycles)
         cpu.pc = 0x0200;
         cpu.set_zero(false);
-        total_cycles += cpu.beq(&bus, &AddressingResult::new(0x0250));
+        total_cycles += cpu.beq(&mut bus, &AddressingResult::new(0x0250));
         assert_eq!(cpu.pc, 0x0200, "PC should not change when branch not taken");
         assert_eq!(total_cycles, 0, "No extra cycles for branch not taken");
 
         // Scenario 2: Branch taken, same page (1 extra cycle)
         cpu.pc = 0x0200;
         cpu.set_zero(true);
-        total_cycles += cpu.beq(&bus, &AddressingResult::new(0x0250));
+        total_cycles += cpu.beq(&mut bus, &AddressingResult::new(0x0250));
         assert_eq!(cpu.pc, 0x0250, "PC should update when branch taken");
         assert_eq!(total_cycles, 1, "1 extra cycle for branch taken");
 
         // Scenario 3: Branch taken, page crossed (2 extra cycles)
         cpu.pc = 0x01FE;
         cpu.set_carry(true);
-        total_cycles += cpu.bcs(&bus, &AddressingResult::new(0x0210).with_page_cross(true));
+        total_cycles += cpu.bcs(&mut bus, &AddressingResult::new(0x0210).with_page_cross(true));
         assert_eq!(cpu.pc, 0x0210, "PC should update to new page");
         assert_eq!(total_cycles, 3, "Total should be 3 (0 + 1 + 2)");
 
         // Scenario 4: Another branch not taken
         cpu.pc = 0x0210;
         cpu.set_negative(false);
-        total_cycles += cpu.bmi(&bus, &AddressingResult::new(0x0300));
+        total_cycles += cpu.bmi(&mut bus, &AddressingResult::new(0x0300));
         assert_eq!(cpu.pc, 0x0210, "PC should not change");
         assert_eq!(total_cycles, 3, "Total should remain 3");
 
         // Scenario 5: Branch backward with page cross (2 extra cycles)
         cpu.pc = 0x0300;
         cpu.set_overflow(true);
-        total_cycles += cpu.bvs(&bus, &AddressingResult::new(0x02F0).with_page_cross(true));
+        total_cycles += cpu.bvs(&mut bus, &AddressingResult::new(0x02F0).with_page_cross(true));
         assert_eq!(cpu.pc, 0x02F0, "PC should branch backward across page");
         assert_eq!(total_cycles, 5, "Total should be 5 (3 + 2)");
 

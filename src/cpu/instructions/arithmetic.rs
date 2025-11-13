@@ -25,7 +25,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
-    pub fn adc(&mut self, bus: &Bus, addr_result: &AddressingResult) {
+    pub fn adc(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         let carry = if self.get_carry() { 1 } else { 0 };
 
@@ -68,7 +68,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
-    pub fn sbc(&mut self, bus: &Bus, addr_result: &AddressingResult) {
+    pub fn sbc(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
 
         // SBC is equivalent to ADC with the one's complement of the value
@@ -207,13 +207,13 @@ mod tests {
     #[test]
     fn test_adc_simple() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x10;
         cpu.set_carry(false);
 
         let addr_result = AddressingResult::immediate(0x20);
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x30, "0x10 + 0x20 should equal 0x30");
         assert!(!cpu.get_carry(), "Carry flag should be clear");
@@ -225,13 +225,13 @@ mod tests {
     #[test]
     fn test_adc_with_carry() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x10;
         cpu.set_carry(true);
 
         let addr_result = AddressingResult::immediate(0x20);
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x31, "0x10 + 0x20 + 1 should equal 0x31");
         assert!(!cpu.get_carry(), "Carry flag should be clear");
@@ -240,13 +240,13 @@ mod tests {
     #[test]
     fn test_adc_carry_flag() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0xFF;
         cpu.set_carry(false);
 
         let addr_result = AddressingResult::immediate(0x01);
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x00, "0xFF + 0x01 should wrap to 0x00");
         assert!(cpu.get_carry(), "Carry flag should be set");
@@ -257,14 +257,14 @@ mod tests {
     #[test]
     fn test_adc_overflow_positive() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Adding two positive numbers that overflow into negative
         cpu.a = 0x50; // +80
         cpu.set_carry(false);
 
         let addr_result = AddressingResult::immediate(0x50); // +80
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0xA0, "Result should be 0xA0 (160, or -96 in signed)");
         assert!(!cpu.get_carry(), "Carry flag should be clear");
@@ -281,14 +281,14 @@ mod tests {
     #[test]
     fn test_adc_overflow_negative() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Adding two negative numbers that overflow into positive
         cpu.a = 0x80; // -128
         cpu.set_carry(false);
 
         let addr_result = AddressingResult::immediate(0xFF); // -1
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x7F, "Result should be 0x7F");
         assert!(cpu.get_carry(), "Carry flag should be set");
@@ -302,14 +302,14 @@ mod tests {
     #[test]
     fn test_adc_no_overflow() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Adding positive and negative numbers (different signs) never overflow
         cpu.a = 0x50; // +80
         cpu.set_carry(false);
 
         let addr_result = AddressingResult::immediate(0xF0); // -16
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x40, "0x50 + 0xF0 should equal 0x40");
         assert!(cpu.get_carry(), "Carry flag should be set");
@@ -322,13 +322,13 @@ mod tests {
     #[test]
     fn test_adc_zero_result() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x00;
         cpu.set_carry(false);
 
         let addr_result = AddressingResult::immediate(0x00);
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x00);
         assert!(cpu.get_zero(), "Zero flag should be set");
@@ -343,13 +343,13 @@ mod tests {
     #[test]
     fn test_sbc_simple() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x50;
         cpu.set_carry(true); // No borrow
 
         let addr_result = AddressingResult::immediate(0x20);
-        cpu.sbc(&bus, &addr_result);
+        cpu.sbc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x30, "0x50 - 0x20 should equal 0x30");
         assert!(cpu.get_carry(), "Carry flag should be set (no borrow)");
@@ -361,13 +361,13 @@ mod tests {
     #[test]
     fn test_sbc_with_borrow() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x50;
         cpu.set_carry(false); // Borrow
 
         let addr_result = AddressingResult::immediate(0x20);
-        cpu.sbc(&bus, &addr_result);
+        cpu.sbc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x2F, "0x50 - 0x20 - 1 should equal 0x2F");
         assert!(cpu.get_carry(), "Carry flag should be set");
@@ -376,13 +376,13 @@ mod tests {
     #[test]
     fn test_sbc_underflow() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x00;
         cpu.set_carry(true); // No borrow
 
         let addr_result = AddressingResult::immediate(0x01);
-        cpu.sbc(&bus, &addr_result);
+        cpu.sbc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0xFF, "0x00 - 0x01 should wrap to 0xFF");
         assert!(
@@ -395,13 +395,13 @@ mod tests {
     #[test]
     fn test_sbc_zero_result() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x50;
         cpu.set_carry(true);
 
         let addr_result = AddressingResult::immediate(0x50);
-        cpu.sbc(&bus, &addr_result);
+        cpu.sbc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x00);
         assert!(cpu.get_zero(), "Zero flag should be set");
@@ -412,14 +412,14 @@ mod tests {
     #[test]
     fn test_sbc_overflow() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Subtracting a negative from a positive can cause overflow
         cpu.a = 0x50; // +80
         cpu.set_carry(true);
 
         let addr_result = AddressingResult::immediate(0xB0); // -80
-        cpu.sbc(&bus, &addr_result);
+        cpu.sbc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0xA0);
         assert!(
@@ -432,14 +432,14 @@ mod tests {
     #[test]
     fn test_sbc_no_overflow() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Subtracting a positive from a positive (both same sign) doesn't overflow
         cpu.a = 0x50;
         cpu.set_carry(true);
 
         let addr_result = AddressingResult::immediate(0x30);
-        cpu.sbc(&bus, &addr_result);
+        cpu.sbc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x20);
         assert!(
@@ -735,14 +735,14 @@ mod tests {
     #[test]
     fn test_multi_byte_addition() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Simulate adding two 16-bit numbers: 0x1234 + 0x5678 = 0x68AC
         // Low byte: 0x34 + 0x78 = 0xAC (carry = 0)
         cpu.a = 0x34;
         cpu.set_carry(false);
         let addr_result = AddressingResult::immediate(0x78);
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0xAC, "Low byte should be 0xAC");
         assert!(!cpu.get_carry(), "Carry should be clear");
@@ -750,7 +750,7 @@ mod tests {
         // High byte: 0x12 + 0x56 + 0 (no carry) = 0x68
         cpu.a = 0x12;
         let addr_result = AddressingResult::immediate(0x56);
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x68, "High byte should be 0x68");
         assert!(!cpu.get_carry(), "Carry should be clear");
@@ -759,14 +759,14 @@ mod tests {
     #[test]
     fn test_multi_byte_addition_with_carry() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Simulate adding two 16-bit numbers: 0x12FF + 0x5601 = 0x6900
         // Low byte: 0xFF + 0x01 = 0x00 (carry = 1)
         cpu.a = 0xFF;
         cpu.set_carry(false);
         let addr_result = AddressingResult::immediate(0x01);
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x00, "Low byte should be 0x00");
         assert!(cpu.get_carry(), "Carry should be set");
@@ -774,7 +774,7 @@ mod tests {
         // High byte: 0x12 + 0x56 + 1 (carry) = 0x69
         cpu.a = 0x12;
         let addr_result = AddressingResult::immediate(0x56);
-        cpu.adc(&bus, &addr_result);
+        cpu.adc(&mut bus, &addr_result);
 
         assert_eq!(cpu.a, 0x69, "High byte should be 0x69");
         assert!(!cpu.get_carry(), "Carry should be clear");

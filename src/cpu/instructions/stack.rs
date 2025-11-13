@@ -63,7 +63,7 @@ impl Cpu {
     /// ```text
     /// PLA         ; Pull value from stack into accumulator
     /// ```
-    pub fn pla(&mut self, bus: &Bus, _addr_result: &AddressingResult) -> u8 {
+    pub fn pla(&mut self, bus: &mut Bus, _addr_result: &AddressingResult) -> u8 {
         self.a = self.stack_pop(bus);
         self.update_zero_and_negative_flags(self.a);
         0
@@ -145,7 +145,7 @@ impl Cpu {
     /// 2. The B flag (bit 4) from the stack is ignored (not copied to status register)
     ///
     /// This is important for RTI (Return from Interrupt) which behaves differently.
-    pub fn plp(&mut self, bus: &Bus, _addr_result: &AddressingResult) -> u8 {
+    pub fn plp(&mut self, bus: &mut Bus, _addr_result: &AddressingResult) -> u8 {
         let status_from_stack = self.stack_pop(bus);
 
         // Save the current B flag before updating status
@@ -309,7 +309,7 @@ mod tests {
 
         // Execute PLA
         let addr_result = AddressingResult::new(0);
-        let cycles = cpu.pla(&bus, &addr_result);
+        let cycles = cpu.pla(&mut bus, &addr_result);
 
         assert_eq!(cycles, 0, "PLA should not return additional cycles");
         assert_eq!(cpu.a, 0x42, "Accumulator should have pulled value");
@@ -334,7 +334,7 @@ mod tests {
         cpu.set_zero(false);
 
         // Execute PLA
-        cpu.pla(&bus, &AddressingResult::new(0));
+        cpu.pla(&mut bus, &AddressingResult::new(0));
 
         assert_eq!(cpu.a, 0x00, "Accumulator should be zero");
         assert!(cpu.get_zero(), "Zero flag should be set when pulling zero");
@@ -359,7 +359,7 @@ mod tests {
         cpu.set_zero(false);
 
         // Execute PLA
-        cpu.pla(&bus, &AddressingResult::new(0));
+        cpu.pla(&mut bus, &AddressingResult::new(0));
 
         assert_eq!(cpu.a, 0x80, "Accumulator should have value 0x80");
         assert!(
@@ -384,7 +384,7 @@ mod tests {
         cpu.set_negative(true);
 
         // Execute PLA
-        cpu.pla(&bus, &AddressingResult::new(0));
+        cpu.pla(&mut bus, &AddressingResult::new(0));
 
         assert_eq!(cpu.a, 0x42, "Accumulator should have value 0x42");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
@@ -410,7 +410,7 @@ mod tests {
         let overflow = cpu.get_overflow();
 
         // Execute PLA
-        cpu.pla(&bus, &AddressingResult::new(0));
+        cpu.pla(&mut bus, &AddressingResult::new(0));
 
         assert_eq!(cpu.get_carry(), carry, "Carry flag should be unchanged");
         assert_eq!(
@@ -441,7 +441,7 @@ mod tests {
         cpu.a = 0xFF;
 
         // Pull accumulator
-        cpu.pla(&bus, &AddressingResult::new(0));
+        cpu.pla(&mut bus, &AddressingResult::new(0));
 
         assert_eq!(cpu.a, original_value, "Should restore original value");
         assert_eq!(cpu.sp, initial_sp, "SP should be restored");
@@ -461,13 +461,13 @@ mod tests {
         cpu.pha(&mut bus, &AddressingResult::new(0));
 
         // Pull them back (LIFO order)
-        cpu.pla(&bus, &AddressingResult::new(0));
+        cpu.pla(&mut bus, &AddressingResult::new(0));
         assert_eq!(cpu.a, 0x33, "Should pull last value first");
 
-        cpu.pla(&bus, &AddressingResult::new(0));
+        cpu.pla(&mut bus, &AddressingResult::new(0));
         assert_eq!(cpu.a, 0x22, "Should pull second value");
 
-        cpu.pla(&bus, &AddressingResult::new(0));
+        cpu.pla(&mut bus, &AddressingResult::new(0));
         assert_eq!(cpu.a, 0x11, "Should pull first value last");
     }
 
@@ -649,7 +649,7 @@ mod tests {
 
         // Execute PLP
         let addr_result = AddressingResult::new(0);
-        let cycles = cpu.plp(&bus, &addr_result);
+        let cycles = cpu.plp(&mut bus, &addr_result);
 
         assert_eq!(cycles, 0, "PLP should not return additional cycles");
         assert_eq!(
@@ -673,7 +673,7 @@ mod tests {
         cpu.stack_push(&mut bus, 0x00);
 
         // Execute PLP
-        cpu.plp(&bus, &AddressingResult::new(0));
+        cpu.plp(&mut bus, &AddressingResult::new(0));
 
         // UNUSED flag should be forced to 1
         assert!(
@@ -695,7 +695,7 @@ mod tests {
         cpu.stack_push(&mut bus, 0x00);
 
         // Execute PLP
-        cpu.plp(&bus, &AddressingResult::new(0));
+        cpu.plp(&mut bus, &AddressingResult::new(0));
 
         // B flag should remain unchanged from before PLP
         assert_eq!(
@@ -730,7 +730,7 @@ mod tests {
         cpu.set_negative(true);
 
         // Execute PLP
-        cpu.plp(&bus, &AddressingResult::new(0));
+        cpu.plp(&mut bus, &AddressingResult::new(0));
 
         // Verify original flags were restored
         assert!(cpu.get_carry(), "Carry should be restored");
@@ -761,7 +761,7 @@ mod tests {
         cpu.status = 0b00111000;
 
         // Pull status
-        cpu.plp(&bus, &AddressingResult::new(0));
+        cpu.plp(&mut bus, &AddressingResult::new(0));
 
         // Status should be restored (except B flag handling)
         // The B flag from the modified status (0b00111000) should be preserved
@@ -783,7 +783,7 @@ mod tests {
         cpu.stack_push(&mut bus, 0xFF);
 
         // Execute PLP
-        cpu.plp(&bus, &AddressingResult::new(0));
+        cpu.plp(&mut bus, &AddressingResult::new(0));
 
         // All flags should be set (except B flag is ignored)
         assert!(cpu.get_carry(), "Carry should be set");
@@ -807,7 +807,7 @@ mod tests {
         cpu.stack_push(&mut bus, 0x00);
 
         // Execute PLP
-        cpu.plp(&bus, &AddressingResult::new(0));
+        cpu.plp(&mut bus, &AddressingResult::new(0));
 
         // All flags should be clear (except UNUSED which is forced to 1)
         assert!(!cpu.get_carry(), "Carry should be clear");
@@ -851,12 +851,12 @@ mod tests {
         cpu.set_zero(false);
 
         // Pull status
-        cpu.plp(&bus, &AddressingResult::new(0));
+        cpu.plp(&mut bus, &AddressingResult::new(0));
         assert!(cpu.get_carry(), "Carry should be restored");
         assert!(cpu.get_zero(), "Zero should be restored");
 
         // Pull accumulator
-        cpu.pla(&bus, &AddressingResult::new(0));
+        cpu.pla(&mut bus, &AddressingResult::new(0));
         assert_eq!(cpu.a, 0x42, "Accumulator should be restored");
 
         // Stack pointer should be back to initial
@@ -883,17 +883,17 @@ mod tests {
         cpu.php(&mut bus, &AddressingResult::new(0)); // Level 2 status
 
         // Unwind stack (LIFO)
-        cpu.plp(&bus, &AddressingResult::new(0)); // Restore level 2 status
+        cpu.plp(&mut bus, &AddressingResult::new(0)); // Restore level 2 status
         assert!(!cpu.get_carry());
         assert!(cpu.get_zero());
 
-        cpu.pla(&bus, &AddressingResult::new(0)); // Restore level 2 accumulator
+        cpu.pla(&mut bus, &AddressingResult::new(0)); // Restore level 2 accumulator
         assert_eq!(cpu.a, 0x22);
 
-        cpu.plp(&bus, &AddressingResult::new(0)); // Restore level 1 status
+        cpu.plp(&mut bus, &AddressingResult::new(0)); // Restore level 1 status
         assert!(cpu.get_carry());
 
-        cpu.pla(&bus, &AddressingResult::new(0)); // Restore level 1 accumulator
+        cpu.pla(&mut bus, &AddressingResult::new(0)); // Restore level 1 accumulator
         assert_eq!(cpu.a, 0x11);
     }
 }
