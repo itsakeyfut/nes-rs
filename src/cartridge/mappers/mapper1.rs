@@ -828,7 +828,7 @@ mod tests {
         mapper.cpu_write(0x8000, 0x00); // bit 2 = 0
         mapper.cpu_write(0x8000, 0x01); // bit 3 = 1
         mapper.cpu_write(0x8000, 0x01); // bit 4 = 1
-        // Results in 0b11000 = bits 2-3 are 10 = FixFirst
+                                        // Results in 0b11000 = bits 2-3 are 10 = FixFirst
 
         // Verify we're in fix first mode
         assert_eq!(mapper.get_prg_bank_mode(), PrgBankMode::FixFirst);
