@@ -5,10 +5,12 @@
 
 mod mapper0;
 mod mapper1;
+mod mapper2;
 
 use super::{Cartridge, Mapper};
 use mapper0::Mapper0;
 use mapper1::Mapper1;
+use mapper2::Mapper2;
 
 /// Error type for mapper creation
 #[derive(Debug)]
@@ -60,8 +62,8 @@ pub fn create_mapper(cartridge: Cartridge) -> Result<Box<dyn Mapper>, MapperErro
     match cartridge.mapper {
         0 => Ok(Box::new(Mapper0::new(cartridge))),
         1 => Ok(Box::new(Mapper1::new(cartridge))),
+        2 => Ok(Box::new(Mapper2::new(cartridge))),
         // Future mapper implementations will be added here:
-        // 2 => Ok(Box::new(Mapper2::new(cartridge))),
         // 3 => Ok(Box::new(Mapper3::new(cartridge))),
         // 4 => Ok(Box::new(Mapper4::new(cartridge))),
         mapper_num => Err(MapperError::UnsupportedMapper(mapper_num)),
@@ -110,6 +112,25 @@ mod tests {
         let mapper = result.unwrap();
         // Initial mirroring should be horizontal (from default control register 0x0C)
         assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn test_mapper2_creation() {
+        // Create a cartridge with Mapper 2 configuration
+        let cartridge = Cartridge {
+            prg_rom: vec![0xAA; 64 * 1024], // 64KB PRG-ROM (4 banks)
+            chr_rom: vec![0x00; 8 * 1024],  // 8KB CHR-RAM (UxROM uses RAM)
+            trainer: None,
+            mapper: 2,
+            mirroring: Mirroring::Vertical,
+            has_battery: false,
+        };
+
+        let result = create_mapper(cartridge);
+        assert!(result.is_ok());
+
+        let mapper = result.unwrap();
+        assert_eq!(mapper.mirroring(), Mirroring::Vertical);
     }
 
     #[test]
