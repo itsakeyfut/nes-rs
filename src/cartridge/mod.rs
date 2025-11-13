@@ -1,6 +1,8 @@
 // Cartridge module - ROM loading and mapper implementation
 // This module will contain cartridge and mapper implementations
 
+pub mod mappers;
+
 use std::io::{self, Read};
 
 /// iNES file format magic number: "NES" + MS-DOS EOF
@@ -27,6 +29,8 @@ pub enum Mirroring {
     Vertical,
     /// Four-screen VRAM
     FourScreen,
+    /// Single-screen mirroring (one nametable used for all)
+    SingleScreen,
 }
 
 /// iNES ROM format errors
@@ -289,6 +293,137 @@ impl Cartridge {
 impl Default for Cartridge {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Mapper trait defining the interface for all mapper implementations
+///
+/// Mappers handle memory mapping and banking for cartridges. Different mapper types
+/// provide various capabilities such as PRG-ROM/CHR-ROM banking, PRG-RAM, and
+/// dynamic mirroring control.
+///
+/// # Memory Ranges
+/// - CPU address space: `$6000-$FFFF`
+///   - `$6000-$7FFF`: PRG-RAM (if present)
+///   - `$8000-$FFFF`: PRG-ROM
+/// - PPU address space: `$0000-$1FFF`
+///   - `$0000-$1FFF`: CHR-ROM or CHR-RAM
+///
+/// # Example Implementation
+///
+/// Here's a simplified example of how a basic mapper (Mapper 0 / NROM) might implement this trait:
+///
+/// ```ignore
+/// struct Mapper0 {
+///     prg_rom: Vec<u8>,
+///     chr_rom: Vec<u8>,
+///     mirroring: Mirroring,
+/// }
+///
+/// impl Mapper for Mapper0 {
+///     fn cpu_read(&self, address: u16) -> u8 {
+///         match address {
+///             0x8000..=0xFFFF => {
+///                 // Map to PRG-ROM (with mirroring for 16KB ROMs)
+///                 let index = (address - 0x8000) as usize % self.prg_rom.len();
+///                 self.prg_rom[index]
+///             }
+///             _ => 0, // Unmapped
+///         }
+///     }
+///
+///     fn cpu_write(&mut self, _address: u16, _value: u8) {
+///         // NROM has no writable registers
+///     }
+///
+///     fn ppu_read(&self, address: u16) -> u8 {
+///         self.chr_rom[address as usize]
+///     }
+///
+///     fn ppu_write(&mut self, address: u16, value: u8) {
+///         // For CHR-RAM, write to the array
+///         // For CHR-ROM, ignore writes
+///     }
+///
+///     fn mirroring(&self) -> Mirroring {
+///         self.mirroring
+///     }
+/// }
+/// ```
+///
+/// # Mapper Implementation Guidelines
+///
+/// - **Mapper 0 (NROM)**: No banking, simplest mapper
+/// - **Mapper 1 (MMC1)**: PRG/CHR banking via serial shift register
+/// - **Mapper 2 (UxROM)**: PRG banking, fixed CHR-RAM
+/// - **Mapper 3 (CNROM)**: CHR banking only
+/// - **Mapper 4 (MMC3)**: Complex banking with IRQ support
+///
+/// Each mapper should handle its specific memory layout and banking mechanisms.
+pub trait Mapper {
+    /// Read a byte from CPU address space ($6000-$FFFF)
+    ///
+    /// # Arguments
+    /// * `address` - CPU address to read from
+    ///
+    /// # Returns
+    /// The byte at the specified address, or 0 if the address is not mapped
+    fn cpu_read(&self, address: u16) -> u8;
+
+    /// Write a byte to CPU address space ($6000-$FFFF)
+    ///
+    /// Many mappers use writes to specific addresses to control banking and other features.
+    /// Some addresses may be write-only and not actually store data.
+    ///
+    /// # Arguments
+    /// * `address` - CPU address to write to
+    /// * `value` - Byte value to write
+    fn cpu_write(&mut self, address: u16, value: u8);
+
+    /// Read a byte from PPU address space ($0000-$1FFF)
+    ///
+    /// # Arguments
+    /// * `address` - PPU address to read from
+    ///
+    /// # Returns
+    /// The byte at the specified address
+    fn ppu_read(&self, address: u16) -> u8;
+
+    /// Write a byte to PPU address space ($0000-$1FFF)
+    ///
+    /// For CHR-ROM, writes are typically ignored. For CHR-RAM, writes update the RAM.
+    /// Some mappers may use writes for banking control.
+    ///
+    /// # Arguments
+    /// * `address` - PPU address to write to
+    /// * `value` - Byte value to write
+    fn ppu_write(&mut self, address: u16, value: u8);
+
+    /// Get the current mirroring mode
+    ///
+    /// Some mappers can dynamically change the mirroring mode.
+    ///
+    /// # Returns
+    /// The current mirroring mode
+    fn mirroring(&self) -> Mirroring;
+
+    /// Get a reference to PRG-RAM, if present
+    ///
+    /// PRG-RAM is used by some games for save data (when battery-backed) or
+    /// as extra working RAM.
+    ///
+    /// # Returns
+    /// Optional reference to PRG-RAM data
+    fn prg_ram(&self) -> Option<&[u8]> {
+        None
+    }
+
+    /// Get a mutable reference to PRG-RAM, if present
+    ///
+    /// # Returns
+    /// Optional mutable reference to PRG-RAM data
+    fn prg_ram_mut(&mut self) -> Option<&mut [u8]> {
+        None
     }
 }
 
