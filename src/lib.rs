@@ -15,7 +15,7 @@ pub use apu::Apu;
 pub use bus::{Bus, MemoryMappedDevice};
 pub use cartridge::Cartridge;
 pub use cpu::Cpu;
-pub use input::Controller;
+pub use input::{Controller, ControllerIO};
 pub use ppu::Ppu;
 pub use ram::Ram;
 
@@ -32,6 +32,7 @@ mod tests {
         let _bus = Bus::new();
         let _cartridge = Cartridge::new();
         let _controller = Controller::new();
+        let _controller_io = ControllerIO::new();
         let _ram = Ram::new();
     }
 }

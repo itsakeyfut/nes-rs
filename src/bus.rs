@@ -16,6 +16,8 @@
 // $4020-$FFFF: Cartridge space (PRG-ROM, PRG-RAM, and mapper registers)
 // ```
 
+use crate::apu::Apu;
+use crate::input::ControllerIO;
 use crate::ppu::Ppu;
 
 /// Trait for memory-mapped components
@@ -73,13 +75,23 @@ pub struct Bus {
     /// The PPU has 8 registers mapped at $2000-$2007, mirrored throughout $2000-$3FFF.
     ppu: Ppu,
 
+    /// APU (Audio Processing Unit)
+    ///
+    /// The APU has registers mapped at $4000-$4015 and $4017 (frame counter).
+    apu: Apu,
+
+    /// Controller I/O
+    ///
+    /// Controller ports mapped at $4016 (Controller 1) and $4017 (Controller 2).
+    /// Note: $4017 is shared - writes go to APU, reads come from controller.
+    controller_io: ControllerIO,
+
     /// Temporary ROM storage for testing
     ///
     /// This will be replaced with proper cartridge/mapper implementation.
     /// Covers $4020-$FFFF (approximately 48KB).
     rom: [u8; 0xC000],
     // Future: Dynamic component registration
-    // apu: Option<Box<dyn MemoryMappedDevice>>,
     // cartridge: Option<Box<dyn MemoryMappedDevice>>,
 }
 
@@ -98,6 +110,8 @@ impl Bus {
         Bus {
             ram: [0; 2048],
             ppu: Ppu::new(),
+            apu: Apu::new(),
+            controller_io: ControllerIO::new(),
             rom: [0; 0xC000],
         }
     }
@@ -148,8 +162,19 @@ impl Bus {
 
             // APU and I/O Registers: $4000-$4017
             0x4000..=0x4017 => {
-                // TODO: Route to APU/Controller components when registered
-                0
+                match addr {
+                    // APU registers: $4000-$4015
+                    0x4000..=0x4015 => self.apu.read(addr),
+
+                    // $4016: Controller 1 (R/W)
+                    0x4016 => self.controller_io.read(addr),
+
+                    // $4017: Controller 2 (R) / APU Frame Counter (W)
+                    // Reads return controller 2 data
+                    0x4017 => self.controller_io.read(addr),
+
+                    _ => 0,
+                }
             }
 
             // APU/I/O Test Mode: $4018-$401F
@@ -221,7 +246,19 @@ impl Bus {
 
             // APU and I/O Registers: $4000-$4017
             0x4000..=0x4017 => {
-                // TODO: Route to APU/Controller components when registered
+                match addr {
+                    // APU registers: $4000-$4015
+                    0x4000..=0x4015 => self.apu.write(addr, data),
+
+                    // $4016: Controller 1 strobe (W) / Controller 1 data (R)
+                    0x4016 => self.controller_io.write(addr, data),
+
+                    // $4017: APU Frame Counter (W) / Controller 2 (R)
+                    // Writes go to APU frame counter
+                    0x4017 => self.apu.write(addr, data),
+
+                    _ => {}
+                }
             }
 
             // APU/I/O Test Mode: $4018-$401F
