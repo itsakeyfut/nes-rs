@@ -466,7 +466,7 @@ impl Bus {
         for offset in 0..256u16 {
             let source_addr = base_addr.wrapping_add(offset);
             let data = self.read(source_addr);
-            self.ppu.write_oam(offset as u8, data);
+            self.ppu.write(0x2004, data);
         }
 
         // Clear DMA pending flag
