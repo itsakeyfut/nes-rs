@@ -374,7 +374,7 @@ impl Ppu {
         let addr = (addr & 0x001F) as usize;
 
         // Special mirroring: $3F10, $3F14, $3F18, $3F1C -> $3F00, $3F04, $3F08, $3F0C
-        if addr >= 16 && addr % 4 == 0 {
+        if addr >= 16 && addr.is_multiple_of(4) {
             addr - 16
         } else {
             addr
