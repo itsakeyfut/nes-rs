@@ -348,10 +348,7 @@ mod tests {
         cpu.brk(&mut bus, &AddressingResult::new(0));
 
         // Verify B flag is still NOT set in CPU status
-        assert!(
-            !cpu.get_break(),
-            "B flag should remain clear in CPU status"
-        );
+        assert!(!cpu.get_break(), "B flag should remain clear in CPU status");
 
         // Verify pushed status has B flag set
         let pushed_status = bus.read(0x0100 | (initial_sp.wrapping_sub(2) as u16));
@@ -517,7 +514,10 @@ mod tests {
         let expected_status = (status_pattern | flags::UNUSED) & !flags::BREAK
             | (if initial_b_flag { flags::BREAK } else { 0 });
 
-        assert_eq!(cpu.status, expected_status, "All flags should be restored except B flag which is preserved");
+        assert_eq!(
+            cpu.status, expected_status,
+            "All flags should be restored except B flag which is preserved"
+        );
 
         // Verify individual flags (except B)
         assert!(cpu.get_negative(), "Negative should be set");
@@ -700,8 +700,7 @@ mod tests {
         // Return from second interrupt
         cpu.rti(&bus, &AddressingResult::new(0));
         assert_eq!(
-            cpu.pc,
-            0x2002,
+            cpu.pc, 0x2002,
             "Should return from second interrupt to 0x2002"
         );
         assert_eq!(cpu.sp, sp_after_first_brk);
@@ -709,8 +708,7 @@ mod tests {
         // Return from first interrupt
         cpu.rti(&bus, &AddressingResult::new(0));
         assert_eq!(
-            cpu.pc,
-            0x1002,
+            cpu.pc, 0x1002,
             "Should return from first interrupt to 0x1002"
         );
         assert_eq!(cpu.sp, initial_sp);
