@@ -3,7 +3,9 @@
 
 // Sub-modules
 pub mod addressing;
+pub mod execute;
 pub mod instructions;
+pub mod opcodes;
 
 /// Processor Status Flags (P register)
 ///
@@ -61,6 +63,9 @@ pub struct Cpu {
     pub sp: u8,     // Stack Pointer
     pub pc: u16,    // Program Counter
     pub status: u8, // Processor Status flags
+
+    // Cycle counter
+    pub cycles: u64, // Total number of cycles executed
 }
 
 impl Cpu {
@@ -82,6 +87,7 @@ impl Cpu {
             sp: 0xFD,
             pc: 0,
             status: 0,
+            cycles: 0,
         };
 
         // Initialize status register with required flags
@@ -114,6 +120,7 @@ impl Cpu {
         self.x = 0;
         self.y = 0;
         self.sp = 0xFD;
+        self.cycles = 0;
 
         // Clear all flags except UNUSED (which must always be 1)
         self.status = 0;
@@ -124,6 +131,9 @@ impl Cpu {
         let lo = bus.read(vectors::RESET) as u16;
         let hi = bus.read(vectors::RESET.wrapping_add(1)) as u16;
         self.pc = (hi << 8) | lo;
+
+        // RESET takes 7 cycles (actually 8, but we count from 7 for compatibility)
+        self.cycles = 7;
     }
 
     // ========================================

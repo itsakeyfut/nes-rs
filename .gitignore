@@ -1,4 +1,6 @@
 /target
 
+*.log
+
 # My Private Documents
 docs/
