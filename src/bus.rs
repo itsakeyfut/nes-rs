@@ -443,7 +443,7 @@ impl Bus {
     ///
     /// // Execute DMA
     /// let cycles = bus.execute_dma(0);
-    /// assert_eq!(cycles, 513); // Even cycle start = 513 + 1 = 514, but alignment dummy cycle = 513
+    /// assert_eq!(cycles, 514); // Even cycle start = 514 cycles
     /// ```
     pub fn execute_dma(&mut self, cpu_cycle: u64) -> u16 {
         if !self.dma_pending {
@@ -453,10 +453,10 @@ impl Bus {
         // Calculate DMA cycles
         // DMA takes:
         // - 1 dummy cycle (wait cycle)
-        // - +1 additional cycle if starting on an odd CPU cycle
+        // - +1 additional cycle if starting on an even CPU cycle
         // - 512 cycles for the actual transfer (256 reads + 256 writes)
         // Total: 513 cycles (odd start) or 514 cycles (even start)
-        let alignment_cycle = if cpu_cycle % 2 == 1 { 1 } else { 0 };
+        let alignment_cycle = if cpu_cycle.is_multiple_of(2) { 1 } else { 0 };
         let total_cycles = 513 + alignment_cycle;
 
         // Perform the DMA transfer
@@ -901,8 +901,8 @@ mod tests {
         // Execute DMA
         let cycles = bus.execute_dma(0); // Start on even cycle
 
-        // Check cycles (even cycle start = 513 cycles)
-        assert_eq!(cycles, 513, "DMA should take 513 cycles on even start");
+        // Check cycles (even cycle start = 514 cycles)
+        assert_eq!(cycles, 514, "DMA should take 514 cycles on even start");
 
         // Verify DMA is no longer active
         assert!(!bus.is_dma_active());
@@ -933,8 +933,8 @@ mod tests {
         // Execute DMA
         let cycles = bus.execute_dma(1); // Start on odd cycle
 
-        // Check cycles (odd cycle start = 514 cycles)
-        assert_eq!(cycles, 514, "DMA should take 514 cycles on odd start");
+        // Check cycles (odd cycle start = 513 cycles)
+        assert_eq!(cycles, 513, "DMA should take 513 cycles on odd start");
 
         // Verify all 256 bytes were transferred correctly
         for i in 0..256 {
@@ -960,7 +960,7 @@ mod tests {
 
         // Execute on even cycle (0, 2, 4, etc.)
         let cycles = bus.execute_dma(0);
-        assert_eq!(cycles, 513, "Even cycle start should take 513 cycles");
+        assert_eq!(cycles, 514, "Even cycle start should take 514 cycles");
 
         let cycles = bus.execute_dma(2);
         assert_eq!(cycles, 0, "DMA already completed, should return 0");
@@ -979,7 +979,7 @@ mod tests {
 
         // Execute on odd cycle (1, 3, 5, etc.)
         let cycles = bus.execute_dma(1);
-        assert_eq!(cycles, 514, "Odd cycle start should take 514 cycles");
+        assert_eq!(cycles, 513, "Odd cycle start should take 513 cycles");
     }
 
     #[test]
@@ -1226,7 +1226,7 @@ mod tests {
 
         // 4. Verify DMA completed
         assert!(!bus.is_dma_active());
-        assert_eq!(cycles, 514);
+        assert_eq!(cycles, 513);
 
         // 5. Verify all sprite data transferred correctly
         for sprite_num in 0u8..64 {
