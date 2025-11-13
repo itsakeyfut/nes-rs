@@ -8,6 +8,7 @@ pub mod cartridge;
 pub mod cpu;
 pub mod input;
 pub mod ppu;
+pub mod ram;
 
 // Re-export main types for convenience
 pub use apu::Apu;
@@ -16,6 +17,7 @@ pub use cartridge::Cartridge;
 pub use cpu::Cpu;
 pub use input::Controller;
 pub use ppu::Ppu;
+pub use ram::Ram;
 
 #[cfg(test)]
 mod tests {
@@ -30,5 +32,6 @@ mod tests {
         let _bus = Bus::new();
         let _cartridge = Cartridge::new();
         let _controller = Controller::new();
+        let _ram = Ram::new();
     }
 }
