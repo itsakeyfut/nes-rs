@@ -16,6 +16,8 @@
 // $4020-$FFFF: Cartridge space (PRG-ROM, PRG-RAM, and mapper registers)
 // ```
 
+use crate::ppu::Ppu;
+
 /// Trait for memory-mapped components
 ///
 /// This trait defines the interface for components that can be mapped into the
@@ -29,12 +31,15 @@
 pub trait MemoryMappedDevice {
     /// Read a byte from the device
     ///
+    /// Some devices have side effects on read (e.g., PPU PPUSTATUS clears flags),
+    /// so this method takes &mut self.
+    ///
     /// # Arguments
     /// * `addr` - The address to read from (device-specific addressing)
     ///
     /// # Returns
     /// The byte value at the specified address
-    fn read(&self, addr: u16) -> u8;
+    fn read(&mut self, addr: u16) -> u8;
 
     /// Write a byte to the device
     ///
@@ -63,13 +68,17 @@ pub struct Bus {
     /// This RAM is mirrored 3 times at $0800-$1FFF.
     ram: [u8; 2048],
 
+    /// PPU (Picture Processing Unit)
+    ///
+    /// The PPU has 8 registers mapped at $2000-$2007, mirrored throughout $2000-$3FFF.
+    ppu: Ppu,
+
     /// Temporary ROM storage for testing
     ///
     /// This will be replaced with proper cartridge/mapper implementation.
     /// Covers $4020-$FFFF (approximately 48KB).
     rom: [u8; 0xC000],
     // Future: Dynamic component registration
-    // ppu: Option<Box<dyn MemoryMappedDevice>>,
     // apu: Option<Box<dyn MemoryMappedDevice>>,
     // cartridge: Option<Box<dyn MemoryMappedDevice>>,
 }
@@ -83,11 +92,12 @@ impl Bus {
     /// # Example
     /// ```
     /// use nes_rs::Bus;
-    /// let bus = Bus::new();
+    /// let mut bus = Bus::new();
     /// ```
     pub fn new() -> Self {
         Bus {
             ram: [0; 2048],
+            ppu: Ppu::new(),
             rom: [0; 0xC000],
         }
     }
@@ -114,10 +124,10 @@ impl Bus {
     /// # Example
     /// ```
     /// use nes_rs::Bus;
-    /// let bus = Bus::new();
+    /// let mut bus = Bus::new();
     /// let value = bus.read(0x0000); // Read from RAM
     /// ```
-    pub fn read(&self, addr: u16) -> u8 {
+    pub fn read(&mut self, addr: u16) -> u8 {
         match addr {
             // Internal RAM: $0000-$07FF (2KB)
             // Mirrored at: $0800-$0FFF, $1000-$17FF, $1800-$1FFF
@@ -132,10 +142,8 @@ impl Bus {
             // Mirrored throughout: $2008-$3FFF (repeating every 8 bytes)
             // Total range: $2000-$3FFF
             0x2000..=0x3FFF => {
-                // Mirror using mask: only keep lowest 3 bits for register selection
-                let _ppu_reg = addr & 0x0007;
-                // TODO: Route to PPU component when registered
-                0
+                // Route to PPU - mirroring is handled inside the PPU
+                self.ppu.read(addr)
             }
 
             // APU and I/O Registers: $4000-$4017
@@ -207,9 +215,8 @@ impl Bus {
             // Mirrored throughout: $2008-$3FFF (repeating every 8 bytes)
             // Total range: $2000-$3FFF
             0x2000..=0x3FFF => {
-                // Mirror using mask: only keep lowest 3 bits for register selection
-                let _ppu_reg = addr & 0x0007;
-                // TODO: Route to PPU component when registered
+                // Route to PPU - mirroring is handled inside the PPU
+                self.ppu.write(addr, data);
             }
 
             // APU and I/O Registers: $4000-$4017
@@ -276,7 +283,7 @@ impl Bus {
     /// bus.write(0x0001, 0x12);
     /// assert_eq!(bus.read_u16(0x0000), 0x1234);
     /// ```
-    pub fn read_u16(&self, addr: u16) -> u16 {
+    pub fn read_u16(&mut self, addr: u16) -> u16 {
         let lo = self.read(addr) as u16;
         let hi = self.read(addr.wrapping_add(1)) as u16;
         (hi << 8) | lo
@@ -323,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_bus_initialization() {
-        let bus = Bus::new();
+        let mut bus = Bus::new();
         // Verify RAM is zero-initialized
         assert_eq!(bus.read(0x0000), 0, "RAM start should be zero");
         assert_eq!(bus.read(0x07FF), 0, "RAM end should be zero");
@@ -332,8 +339,8 @@ mod tests {
 
     #[test]
     fn test_bus_default() {
-        let bus1 = Bus::new();
-        let bus2 = Bus::default();
+        let mut bus1 = Bus::new();
+        let mut bus2 = Bus::default();
         // Both should have same initial state
         assert_eq!(bus1.read(0x0000), bus2.read(0x0000));
     }
@@ -458,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_ppu_register_range() {
-        let bus = Bus::new();
+        let mut bus = Bus::new();
         // PPU registers should return 0 (stub implementation)
         assert_eq!(bus.read(0x2000), 0, "PPUCTRL");
         assert_eq!(bus.read(0x2001), 0, "PPUMASK");
@@ -468,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_ppu_register_mirroring() {
-        let bus = Bus::new();
+        let mut bus = Bus::new();
         // PPU registers repeat every 8 bytes
         assert_eq!(bus.read(0x2000), bus.read(0x2008), "$2000 mirrors at $2008");
         assert_eq!(bus.read(0x2000), bus.read(0x2010), "$2000 mirrors at $2010");
@@ -501,7 +508,7 @@ mod tests {
 
     #[test]
     fn test_apu_registers() {
-        let bus = Bus::new();
+        let mut bus = Bus::new();
         // APU registers should return 0 (stub implementation)
         assert_eq!(bus.read(0x4000), 0, "SQ1_VOL");
         assert_eq!(bus.read(0x4015), 0, "SND_CHN");
@@ -517,7 +524,7 @@ mod tests {
 
     #[test]
     fn test_io_test_region() {
-        let bus = Bus::new();
+        let mut bus = Bus::new();
         // Test region $4018-$401F should return 0
         assert_eq!(bus.read(0x4018), 0);
         assert_eq!(bus.read(0x401F), 0);

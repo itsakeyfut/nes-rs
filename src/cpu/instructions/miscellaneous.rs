@@ -33,7 +33,7 @@ impl Cpu {
     /// ```text
     /// NOP         ; Do nothing, wait 2 cycles
     /// ```
-    pub fn nop(&mut self, _bus: &Bus, _addr_result: &AddressingResult) -> u8 {
+    pub fn nop(&mut self, _bus: &mut Bus, _addr_result: &AddressingResult) -> u8 {
         // Do nothing - this is the entire purpose of NOP
         0
     }
@@ -141,7 +141,7 @@ impl Cpu {
     /// to distinguish between BRK (B=1) and hardware interrupts IRQ/NMI (B=0).
     ///
     /// The UNUSED flag (bit 5) is always set to 1 in the status register after pulling.
-    pub fn rti(&mut self, bus: &Bus, _addr_result: &AddressingResult) -> u8 {
+    pub fn rti(&mut self, bus: &mut Bus, _addr_result: &AddressingResult) -> u8 {
         // Pull status flags from stack
         let status_from_stack = self.stack_pop(bus);
 
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn test_nop_does_nothing() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Save initial state
         let initial_a = cpu.a;
@@ -187,7 +187,7 @@ mod tests {
 
         // Execute NOP
         let addr_result = AddressingResult::new(0);
-        let cycles = cpu.nop(&bus, &addr_result);
+        let cycles = cpu.nop(&mut bus, &addr_result);
 
         // Verify nothing changed
         assert_eq!(cycles, 0, "NOP should not return additional cycles");
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn test_nop_with_various_states() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Set various CPU states
         cpu.a = 0x42;
@@ -216,7 +216,7 @@ mod tests {
         let initial_status = cpu.status;
 
         // Execute NOP
-        cpu.nop(&bus, &AddressingResult::new(0));
+        cpu.nop(&mut bus, &AddressingResult::new(0));
 
         // Verify state unchanged
         assert_eq!(cpu.a, 0x42);
@@ -458,7 +458,7 @@ mod tests {
 
         // Execute RTI
         let addr_result = AddressingResult::new(0);
-        let cycles = cpu.rti(&bus, &addr_result);
+        let cycles = cpu.rti(&mut bus, &addr_result);
 
         assert_eq!(cycles, 0, "RTI should not return additional cycles");
 
@@ -505,7 +505,7 @@ mod tests {
         cpu.set_flag(flags::UNUSED);
 
         // Execute RTI
-        cpu.rti(&bus, &AddressingResult::new(0));
+        cpu.rti(&mut bus, &AddressingResult::new(0));
 
         // Verify flags match pattern (with UNUSED always set, and B flag preserved)
         // B flag should remain as it was before RTI (ignored from stack)
@@ -537,7 +537,7 @@ mod tests {
         cpu.stack_push(&mut bus, status_no_unused);
 
         // Execute RTI
-        cpu.rti(&bus, &AddressingResult::new(0));
+        cpu.rti(&mut bus, &AddressingResult::new(0));
 
         // UNUSED flag must be set
         assert!(
@@ -561,7 +561,7 @@ mod tests {
             cpu.stack_push(&mut bus, 0x00);
 
             // Execute RTI
-            cpu.rti(&bus, &AddressingResult::new(0));
+            cpu.rti(&mut bus, &AddressingResult::new(0));
 
             assert_eq!(
                 cpu.pc, test_pc,
@@ -586,7 +586,7 @@ mod tests {
         cpu.stack_push(&mut bus, status_with_b_clear);
 
         // Execute RTI
-        cpu.rti(&bus, &AddressingResult::new(0));
+        cpu.rti(&mut bus, &AddressingResult::new(0));
 
         // Like PLP, RTI should ignore the B flag from stack and preserve the original
         assert_eq!(
@@ -637,7 +637,7 @@ mod tests {
         assert!(cpu.get_interrupt_disable(), "I flag should be set");
 
         // Now simulate returning from interrupt with RTI
-        cpu.rti(&bus, &AddressingResult::new(0));
+        cpu.rti(&mut bus, &AddressingResult::new(0));
 
         // Verify PC is restored to PC+2 (because BRK pushes PC+2)
         assert_eq!(
@@ -696,7 +696,7 @@ mod tests {
         assert_eq!(cpu.sp, initial_sp.wrapping_sub(6));
 
         // Return from second interrupt
-        cpu.rti(&bus, &AddressingResult::new(0));
+        cpu.rti(&mut bus, &AddressingResult::new(0));
         assert_eq!(
             cpu.pc, 0x2002,
             "Should return from second interrupt to 0x2002"
@@ -704,7 +704,7 @@ mod tests {
         assert_eq!(cpu.sp, sp_after_first_brk);
 
         // Return from first interrupt
-        cpu.rti(&bus, &AddressingResult::new(0));
+        cpu.rti(&mut bus, &AddressingResult::new(0));
         assert_eq!(
             cpu.pc, 0x1002,
             "Should return from first interrupt to 0x1002"

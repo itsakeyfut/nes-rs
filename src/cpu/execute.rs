@@ -162,7 +162,7 @@ impl Cpu {
     ///
     /// Format: PC  OP OP OP  MNEMONIC $ADDR    A:XX X:XX Y:XX P:XX SP:XX PPU:XXX,XXX CYC:XXXX
     /// Example: C000  4C F5 C5  JMP $C5F5       A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7
-    pub fn trace(&self, bus: &Bus) -> String {
+    pub fn trace(&self, bus: &mut Bus) -> String {
         let pc = self.pc;
         let opcode = bus.read(pc);
         let opcode_info = &OPCODE_TABLE[opcode as usize];
@@ -204,7 +204,7 @@ impl Cpu {
     fn disassemble_instruction(
         &self,
         pc: u16,
-        bus: &Bus,
+        bus: &mut Bus,
         opcode_info: &crate::cpu::opcodes::OpcodeInfo,
         byte2: u8,
         byte3: u8,

@@ -115,7 +115,7 @@ impl Cpu {
     /// Unlike NMI and IRQ, RESET does not push any values to the stack.
     /// It simply initializes the CPU state and loads the program counter
     /// from the RESET vector.
-    pub fn reset(&mut self, bus: &crate::bus::Bus) {
+    pub fn reset(&mut self, bus: &mut crate::bus::Bus) {
         self.a = 0;
         self.x = 0;
         self.y = 0;
@@ -434,7 +434,7 @@ mod tests {
         cpu.status = 0xFF;
 
         // Reset the CPU
-        cpu.reset(&bus);
+        cpu.reset(&mut bus);
 
         // Verify registers are reset
         assert_eq!(cpu.a, 0, "Accumulator should be reset to 0");
@@ -652,13 +652,13 @@ mod tests {
     fn test_unused_flag_always_set() {
         use crate::bus::Bus;
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // The UNUSED flag should always be set
         assert!(cpu.get_flag(flags::UNUSED), "UNUSED flag must always be 1");
 
         // Even after reset
-        cpu.reset(&bus);
+        cpu.reset(&mut bus);
         assert!(
             cpu.get_flag(flags::UNUSED),
             "UNUSED flag must remain 1 after reset"
@@ -789,7 +789,7 @@ mod tests {
         bus.write(0xFFFD, (reset_addr >> 8) as u8); // High byte
 
         // Reset the CPU
-        cpu.reset(&bus);
+        cpu.reset(&mut bus);
 
         assert_eq!(cpu.pc, reset_addr, "PC should be loaded from RESET vector");
         assert!(
@@ -815,7 +815,7 @@ mod tests {
         let initial_sp = cpu.sp;
 
         // Reset the CPU
-        cpu.reset(&bus);
+        cpu.reset(&mut bus);
 
         // Stack pointer should not change (RESET doesn't push anything)
         assert_eq!(cpu.sp, initial_sp, "Stack pointer should not change");
@@ -1190,11 +1190,11 @@ mod tests {
         // Return from interrupt with RTI
         // RTI is implemented in instructions/miscellaneous.rs
         // We need to simulate it here
-        let status_from_stack = cpu.stack_pop(&bus);
+        let status_from_stack = cpu.stack_pop(&mut bus);
         let current_b_flag = cpu.get_flag(flags::BREAK);
         cpu.status = status_from_stack | flags::UNUSED;
         cpu.update_flag(flags::BREAK, current_b_flag);
-        cpu.pc = cpu.stack_pop_u16(&bus);
+        cpu.pc = cpu.stack_pop_u16(&mut bus);
 
         // Verify PC is restored
         assert_eq!(cpu.pc, original_pc, "PC should be restored");

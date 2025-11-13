@@ -91,7 +91,7 @@ impl Ram {
     /// use nes_rs::ram::Ram;
     /// use nes_rs::bus::MemoryMappedDevice;
     ///
-    /// let ram = Ram::new();
+    /// let mut ram = Ram::new();
     /// assert_eq!(ram.read(0x0000), 0xFF); // Default initialization
     /// ```
     pub fn new() -> Self {
@@ -115,7 +115,7 @@ impl Ram {
     /// use nes_rs::ram::Ram;
     /// use nes_rs::bus::MemoryMappedDevice;
     ///
-    /// let ram = Ram::with_zeros();
+    /// let mut ram = Ram::with_zeros();
     /// assert_eq!(ram.read(0x0000), 0x00);
     /// ```
     pub fn with_zeros() -> Self {
@@ -142,7 +142,7 @@ impl Ram {
     /// use nes_rs::ram::Ram;
     /// use nes_rs::bus::MemoryMappedDevice;
     ///
-    /// let ram = Ram::with_pattern(0xAA);
+    /// let mut ram = Ram::with_pattern(0xAA);
     /// assert_eq!(ram.read(0x0000), 0xAA);
     /// assert_eq!(ram.read(0x07FF), 0xAA);
     /// ```
@@ -182,7 +182,7 @@ impl Ram {
     /// ```
     /// use nes_rs::ram::Ram;
     ///
-    /// let ram = Ram::new();
+    /// let mut ram = Ram::new();
     /// assert_eq!(ram.size(), 2048);
     /// ```
     pub const fn size(&self) -> usize {
@@ -217,7 +217,7 @@ impl Ram {
     /// ```
     /// use nes_rs::ram::Ram;
     ///
-    /// let ram = Ram::new();
+    /// let mut ram = Ram::new();
     /// assert_eq!(ram.mirror_address(0x0000), 0x0000);
     /// assert_eq!(ram.mirror_address(0x0800), 0x0000);
     /// assert_eq!(ram.mirror_address(0x1000), 0x0000);
@@ -260,7 +260,7 @@ impl MemoryMappedDevice for Ram {
     /// assert_eq!(ram.read(0x1000), 0x42);
     /// assert_eq!(ram.read(0x1800), 0x42);
     /// ```
-    fn read(&self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
         let mirrored_addr = self.mirror_address(addr) as usize;
         self.memory[mirrored_addr]
     }
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn test_ram_new_initialization() {
-        let ram = Ram::new();
+        let mut ram = Ram::new();
         // Default initialization should be 0xFF
         assert_eq!(ram.read(0x0000), 0xFF);
         assert_eq!(ram.read(0x0400), 0xFF);
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_ram_with_zeros() {
-        let ram = Ram::with_zeros();
+        let mut ram = Ram::with_zeros();
         // Should be initialized to 0x00
         assert_eq!(ram.read(0x0000), 0x00);
         assert_eq!(ram.read(0x0400), 0x00);
@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_ram_with_pattern() {
-        let ram = Ram::with_pattern(0xAA);
+        let mut ram = Ram::with_pattern(0xAA);
         // Should be initialized to the pattern
         assert_eq!(ram.read(0x0000), 0xAA);
         assert_eq!(ram.read(0x0400), 0xAA);
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_ram_default() {
-        let ram = Ram::default();
+        let mut ram = Ram::default();
         // Default should be same as new()
         assert_eq!(ram.read(0x0000), 0xFF);
     }
@@ -675,7 +675,7 @@ mod tests {
         ram1.write(0x0000, 0x42);
         ram1.write(0x0100, 0x43);
 
-        let ram2 = ram1.clone();
+        let mut ram2 = ram1.clone();
 
         // Verify clone has same data
         assert_eq!(ram2.read(0x0000), 0x42);

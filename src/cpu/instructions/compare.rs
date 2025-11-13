@@ -36,7 +36,7 @@ impl Cpu {
     /// CMP: A - M = 0x50 - 0x30 = 0x20
     /// Result: C=1 (A >= M), Z=0 (A != M), N=0 (bit 7 is 0)
     /// ```
-    pub fn cmp(&mut self, bus: &Bus, addr_result: &AddressingResult) {
+    pub fn cmp(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.compare(self.a, value);
     }
@@ -66,7 +66,7 @@ impl Cpu {
     /// CPX: X - M = 0x30 - 0x50 = 0xE0 (wraps around)
     /// Result: C=0 (X < M), Z=0 (X != M), N=1 (bit 7 is 1)
     /// ```
-    pub fn cpx(&mut self, bus: &Bus, addr_result: &AddressingResult) {
+    pub fn cpx(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.compare(self.x, value);
     }
@@ -96,7 +96,7 @@ impl Cpu {
     /// CPY: Y - M = 0x50 - 0x50 = 0x00
     /// Result: C=1 (Y >= M), Z=1 (Y == M), N=0 (bit 7 is 0)
     /// ```
-    pub fn cpy(&mut self, bus: &Bus, addr_result: &AddressingResult) {
+    pub fn cpy(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.compare(self.y, value);
     }
@@ -144,11 +144,11 @@ mod tests {
     #[test]
     fn test_cmp_equal() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x50;
         let addr_result = AddressingResult::immediate(0x50);
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
 
         assert!(
             cpu.get_carry(),
@@ -164,11 +164,11 @@ mod tests {
     #[test]
     fn test_cmp_greater() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x50;
         let addr_result = AddressingResult::immediate(0x30);
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
 
         assert!(
             cpu.get_carry(),
@@ -184,11 +184,11 @@ mod tests {
     #[test]
     fn test_cmp_less() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x30;
         let addr_result = AddressingResult::immediate(0x50);
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
 
         assert!(
             !cpu.get_carry(),
@@ -204,11 +204,11 @@ mod tests {
     #[test]
     fn test_cmp_zero_equal() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x00;
         let addr_result = AddressingResult::immediate(0x00);
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
 
         assert!(cpu.get_carry(), "Carry flag should be set when A == M");
         assert!(cpu.get_zero(), "Zero flag should be set when A == M");
@@ -218,11 +218,11 @@ mod tests {
     #[test]
     fn test_cmp_accumulator_not_modified() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0x42;
         let addr_result = AddressingResult::immediate(0x10);
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
 
         assert_eq!(
             cpu.a, 0x42,
@@ -233,11 +233,11 @@ mod tests {
     #[test]
     fn test_cmp_max_values() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.a = 0xFF;
         let addr_result = AddressingResult::immediate(0xFF);
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
 
         assert!(cpu.get_carry(), "Carry flag should be set when equal");
         assert!(cpu.get_zero(), "Zero flag should be set when equal");
@@ -247,12 +247,12 @@ mod tests {
     #[test]
     fn test_cmp_boundary_case_80() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // 0x80 - 0x00 = 0x80 (bit 7 is set)
         cpu.a = 0x80;
         let addr_result = AddressingResult::immediate(0x00);
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
 
         assert!(cpu.get_carry(), "Carry flag should be set when A > M");
         assert!(!cpu.get_zero(), "Zero flag should be clear");
@@ -269,11 +269,11 @@ mod tests {
     #[test]
     fn test_cpx_equal() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.x = 0x50;
         let addr_result = AddressingResult::immediate(0x50);
-        cpu.cpx(&bus, &addr_result);
+        cpu.cpx(&mut bus, &addr_result);
 
         assert!(
             cpu.get_carry(),
@@ -289,11 +289,11 @@ mod tests {
     #[test]
     fn test_cpx_greater() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.x = 0x50;
         let addr_result = AddressingResult::immediate(0x30);
-        cpu.cpx(&bus, &addr_result);
+        cpu.cpx(&mut bus, &addr_result);
 
         assert!(
             cpu.get_carry(),
@@ -309,11 +309,11 @@ mod tests {
     #[test]
     fn test_cpx_less() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.x = 0x30;
         let addr_result = AddressingResult::immediate(0x50);
-        cpu.cpx(&bus, &addr_result);
+        cpu.cpx(&mut bus, &addr_result);
 
         assert!(
             !cpu.get_carry(),
@@ -329,11 +329,11 @@ mod tests {
     #[test]
     fn test_cpx_register_not_modified() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.x = 0x42;
         let addr_result = AddressingResult::immediate(0x10);
-        cpu.cpx(&bus, &addr_result);
+        cpu.cpx(&mut bus, &addr_result);
 
         assert_eq!(
             cpu.x, 0x42,
@@ -344,11 +344,11 @@ mod tests {
     #[test]
     fn test_cpx_zero_values() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.x = 0x00;
         let addr_result = AddressingResult::immediate(0x00);
-        cpu.cpx(&bus, &addr_result);
+        cpu.cpx(&mut bus, &addr_result);
 
         assert!(cpu.get_carry(), "Carry flag should be set when X == M");
         assert!(cpu.get_zero(), "Zero flag should be set when X == M");
@@ -362,11 +362,11 @@ mod tests {
     #[test]
     fn test_cpy_equal() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.y = 0x50;
         let addr_result = AddressingResult::immediate(0x50);
-        cpu.cpy(&bus, &addr_result);
+        cpu.cpy(&mut bus, &addr_result);
 
         assert!(
             cpu.get_carry(),
@@ -382,11 +382,11 @@ mod tests {
     #[test]
     fn test_cpy_greater() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.y = 0x50;
         let addr_result = AddressingResult::immediate(0x30);
-        cpu.cpy(&bus, &addr_result);
+        cpu.cpy(&mut bus, &addr_result);
 
         assert!(
             cpu.get_carry(),
@@ -402,11 +402,11 @@ mod tests {
     #[test]
     fn test_cpy_less() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.y = 0x30;
         let addr_result = AddressingResult::immediate(0x50);
-        cpu.cpy(&bus, &addr_result);
+        cpu.cpy(&mut bus, &addr_result);
 
         assert!(
             !cpu.get_carry(),
@@ -422,11 +422,11 @@ mod tests {
     #[test]
     fn test_cpy_register_not_modified() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.y = 0x42;
         let addr_result = AddressingResult::immediate(0x10);
-        cpu.cpy(&bus, &addr_result);
+        cpu.cpy(&mut bus, &addr_result);
 
         assert_eq!(
             cpu.y, 0x42,
@@ -437,11 +437,11 @@ mod tests {
     #[test]
     fn test_cpy_max_values() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         cpu.y = 0xFF;
         let addr_result = AddressingResult::immediate(0xFF);
-        cpu.cpy(&bus, &addr_result);
+        cpu.cpy(&mut bus, &addr_result);
 
         assert!(cpu.get_carry(), "Carry flag should be set when Y == M");
         assert!(cpu.get_zero(), "Zero flag should be set when Y == M");
@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn test_compare_all_registers() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Set all registers to same value
         cpu.a = 0x42;
@@ -465,17 +465,17 @@ mod tests {
         // Compare all with same value
         let addr_result = AddressingResult::immediate(0x42);
 
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
         assert!(cpu.get_carry(), "CMP: Carry should be set");
         assert!(cpu.get_zero(), "CMP: Zero should be set");
         assert!(!cpu.get_negative(), "CMP: Negative should be clear");
 
-        cpu.cpx(&bus, &addr_result);
+        cpu.cpx(&mut bus, &addr_result);
         assert!(cpu.get_carry(), "CPX: Carry should be set");
         assert!(cpu.get_zero(), "CPX: Zero should be set");
         assert!(!cpu.get_negative(), "CPX: Negative should be clear");
 
-        cpu.cpy(&bus, &addr_result);
+        cpu.cpy(&mut bus, &addr_result);
         assert!(cpu.get_carry(), "CPY: Carry should be set");
         assert!(cpu.get_zero(), "CPY: Zero should be set");
         assert!(!cpu.get_negative(), "CPY: Negative should be clear");
@@ -489,7 +489,7 @@ mod tests {
     #[test]
     fn test_comparison_loop_simulation() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Simulate a loop counter comparison (common pattern in 6502 code)
         // Loop from 0 to 10
@@ -499,7 +499,7 @@ mod tests {
         for i in 0..=10 {
             cpu.x = i;
             let addr_result = AddressingResult::immediate(target);
-            cpu.cpx(&bus, &addr_result);
+            cpu.cpx(&mut bus, &addr_result);
 
             if i < target {
                 assert!(
@@ -523,13 +523,13 @@ mod tests {
     #[test]
     fn test_comparison_signed_interpretation() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Test comparison with values that represent negative numbers in signed interpretation
         // 0x80 = -128 in signed, 128 in unsigned
         cpu.a = 0x80;
         let addr_result = AddressingResult::immediate(0x7F); // 127 in both signed and unsigned
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
 
         // In unsigned comparison: 0x80 (128) > 0x7F (127)
         assert!(cpu.get_carry(), "Carry should be set (unsigned: 128 > 127)");
@@ -543,13 +543,13 @@ mod tests {
     #[test]
     fn test_comparison_wrapping_behavior() {
         let mut cpu = Cpu::new();
-        let bus = Bus::new();
+        let mut bus = Bus::new();
 
         // Test subtraction that wraps around
         // 0x00 - 0x01 = 0xFF (wraps around)
         cpu.a = 0x00;
         let addr_result = AddressingResult::immediate(0x01);
-        cpu.cmp(&bus, &addr_result);
+        cpu.cmp(&mut bus, &addr_result);
 
         assert!(
             !cpu.get_carry(),
