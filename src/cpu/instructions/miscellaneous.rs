@@ -4,10 +4,8 @@
 use crate::bus::Bus;
 use crate::cpu::addressing::AddressingResult;
 use crate::cpu::flags;
+use crate::cpu::vectors;
 use crate::cpu::Cpu;
-
-/// IRQ/BRK interrupt vector address
-const IRQ_VECTOR: u16 = 0xFFFE;
 
 impl Cpu {
     // ========================================
@@ -95,8 +93,8 @@ impl Cpu {
 
         // Load PC from IRQ vector ($FFFE-$FFFF)
         // Low byte at $FFFE, high byte at $FFFF
-        let lo = bus.read(IRQ_VECTOR) as u16;
-        let hi = bus.read(IRQ_VECTOR.wrapping_add(1)) as u16;
+        let lo = bus.read(vectors::IRQ) as u16;
+        let hi = bus.read(vectors::IRQ.wrapping_add(1)) as u16;
         self.pc = (hi << 8) | lo;
 
         0
