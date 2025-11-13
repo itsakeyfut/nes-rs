@@ -3,7 +3,10 @@
 // This module contains the mapper factory and individual mapper implementations.
 // Each mapper handles memory mapping and banking for different cartridge types.
 
+mod mapper0;
+
 use super::{Cartridge, Mapper};
+use mapper0::Mapper0;
 
 /// Error type for mapper creation
 #[derive(Debug)]
@@ -52,22 +55,40 @@ impl std::error::Error for MapperError {}
 /// let mapper = create_mapper(cartridge).unwrap();
 /// ```
 pub fn create_mapper(cartridge: Cartridge) -> Result<Box<dyn Mapper>, MapperError> {
-    // Future mapper implementations will be added here
-    // match cartridge.mapper {
-    //     0 => Ok(Box::new(Mapper0::new(cartridge))),
-    //     1 => Ok(Box::new(Mapper1::new(cartridge))),
-    //     2 => Ok(Box::new(Mapper2::new(cartridge))),
-    //     3 => Ok(Box::new(Mapper3::new(cartridge))),
-    //     4 => Ok(Box::new(Mapper4::new(cartridge))),
-    //     mapper_num => Err(MapperError::UnsupportedMapper(mapper_num)),
-    // }
-    let mapper_num = cartridge.mapper;
-    Err(MapperError::UnsupportedMapper(mapper_num))
+    match cartridge.mapper {
+        0 => Ok(Box::new(Mapper0::new(cartridge))),
+        // Future mapper implementations will be added here:
+        // 1 => Ok(Box::new(Mapper1::new(cartridge))),
+        // 2 => Ok(Box::new(Mapper2::new(cartridge))),
+        // 3 => Ok(Box::new(Mapper3::new(cartridge))),
+        // 4 => Ok(Box::new(Mapper4::new(cartridge))),
+        mapper_num => Err(MapperError::UnsupportedMapper(mapper_num)),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cartridge::Mirroring;
+
+    #[test]
+    fn test_mapper0_creation() {
+        // Create a cartridge with Mapper 0 configuration
+        let cartridge = Cartridge {
+            prg_rom: vec![0xAA; 16 * 1024], // 16KB PRG-ROM
+            chr_rom: vec![0xBB; 8 * 1024],  // 8KB CHR-ROM
+            trainer: None,
+            mapper: 0,
+            mirroring: Mirroring::Horizontal,
+            has_battery: false,
+        };
+
+        let result = create_mapper(cartridge);
+        assert!(result.is_ok());
+
+        let mapper = result.unwrap();
+        assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+    }
 
     #[test]
     fn test_unsupported_mapper() {
