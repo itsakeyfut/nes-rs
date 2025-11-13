@@ -13,7 +13,7 @@ pub mod ram;
 // Re-export main types for convenience
 pub use apu::Apu;
 pub use bus::{Bus, MemoryMappedDevice};
-pub use cartridge::Cartridge;
+pub use cartridge::{Cartridge, INesError, INesHeader, Mirroring};
 pub use cpu::Cpu;
 pub use input::{Controller, ControllerIO};
 pub use ppu::Ppu;
