@@ -60,11 +60,15 @@ impl Mapper2 {
         let prg_rom_size = cartridge.prg_rom.len();
 
         // Validate PRG-ROM size (must be a multiple of 16KB)
-        assert!(
-            prg_rom_size.is_multiple_of(PRG_BANK_SIZE) && prg_rom_size > 0,
-            "Mapper 2 requires PRG-ROM size to be a multiple of 16KB, got {} bytes",
-            prg_rom_size
-        );
+        // Note: Using explicit modulo for stable Rust compatibility (is_multiple_of is nightly-only)
+        #[allow(clippy::manual_is_multiple_of)]
+        {
+            assert!(
+                prg_rom_size % PRG_BANK_SIZE == 0 && prg_rom_size > 0,
+                "Mapper 2 requires PRG-ROM size to be a multiple of 16KB, got {} bytes",
+                prg_rom_size
+            );
+        }
 
         // Calculate number of 16KB banks
         let prg_banks = prg_rom_size / PRG_BANK_SIZE;
