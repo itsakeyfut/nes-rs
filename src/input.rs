@@ -204,8 +204,10 @@ impl ControllerIO {
                 0x01
             };
 
-            // Advance button index
-            self.button_index1 = self.button_index1.wrapping_add(1);
+            // Advance button index (clamp at 8 to prevent wraparound)
+            if self.button_index1 < 8 {
+                self.button_index1 += 1;
+            }
 
             button_state
         }
@@ -241,8 +243,10 @@ impl ControllerIO {
                 0x01
             };
 
-            // Advance button index
-            self.button_index2 = self.button_index2.wrapping_add(1);
+            // Advance button index (clamp at 8 to prevent wraparound)
+            if self.button_index2 < 8 {
+                self.button_index2 += 1;
+            }
 
             button_state
         }
@@ -640,5 +644,70 @@ mod tests {
         // Verify independence
         assert_eq!(controller_io.read(0x4016), 0x01); // Controller 1 A pressed
         assert_eq!(controller_io.read(0x4017), 0x00); // Controller 2 A released
+    }
+
+    // ========================================
+    // Wraparound Prevention Tests
+    // ========================================
+
+    #[test]
+    fn test_no_wraparound_after_256_reads() {
+        let mut controller_io = ControllerIO::new();
+
+        // Press button A on controller 1
+        let mut controller = Controller::new();
+        controller.button_a = true;
+        controller_io.set_controller1(controller);
+
+        // Standard read sequence
+        controller_io.write(0x4016, 0x01);
+        controller_io.write(0x4016, 0x00);
+
+        // Read first 8 buttons (index 0-7)
+        assert_eq!(controller_io.read(0x4016), 0x01); // A pressed
+        for _ in 1..8 {
+            assert_eq!(controller_io.read(0x4016), 0x00);
+        }
+
+        // Reads 9-300 should all return signature bit (1)
+        // This tests that button_index stays clamped at 8 and doesn't wrap
+        for i in 9..=300 {
+            assert_eq!(
+                controller_io.read(0x4016),
+                0x01,
+                "Read {} should return signature bit (1), not wrap to button data",
+                i
+            );
+        }
+
+        // Verify index is still clamped at 8
+        assert_eq!(controller_io.button_index1, 8);
+    }
+
+    #[test]
+    fn test_no_wraparound_controller2() {
+        let mut controller_io = ControllerIO::new();
+
+        // Standard read sequence
+        controller_io.write(0x4016, 0x01);
+        controller_io.write(0x4016, 0x00);
+
+        // Read first 8 buttons
+        for _ in 0..8 {
+            controller_io.read(0x4017);
+        }
+
+        // Reads 9-100 should all return signature bit (1)
+        for i in 9..=100 {
+            assert_eq!(
+                controller_io.read(0x4017),
+                0x01,
+                "Controller 2 read {} should return signature bit (1)",
+                i
+            );
+        }
+
+        // Verify index is still clamped at 8
+        assert_eq!(controller_io.button_index2, 8);
     }
 }
