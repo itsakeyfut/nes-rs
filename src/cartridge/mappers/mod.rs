@@ -52,15 +52,17 @@ impl std::error::Error for MapperError {}
 /// let mapper = create_mapper(cartridge).unwrap();
 /// ```
 pub fn create_mapper(cartridge: Cartridge) -> Result<Box<dyn Mapper>, MapperError> {
-    match cartridge.mapper {
-        // Future mapper implementations will be added here
-        // 0 => Ok(Box::new(Mapper0::new(cartridge))),
-        // 1 => Ok(Box::new(Mapper1::new(cartridge))),
-        // 2 => Ok(Box::new(Mapper2::new(cartridge))),
-        // 3 => Ok(Box::new(Mapper3::new(cartridge))),
-        // 4 => Ok(Box::new(Mapper4::new(cartridge))),
-        mapper_num => Err(MapperError::UnsupportedMapper(mapper_num)),
-    }
+    // Future mapper implementations will be added here
+    // match cartridge.mapper {
+    //     0 => Ok(Box::new(Mapper0::new(cartridge))),
+    //     1 => Ok(Box::new(Mapper1::new(cartridge))),
+    //     2 => Ok(Box::new(Mapper2::new(cartridge))),
+    //     3 => Ok(Box::new(Mapper3::new(cartridge))),
+    //     4 => Ok(Box::new(Mapper4::new(cartridge))),
+    //     mapper_num => Err(MapperError::UnsupportedMapper(mapper_num)),
+    // }
+    let mapper_num = cartridge.mapper;
+    Err(MapperError::UnsupportedMapper(mapper_num))
 }
 
 #[cfg(test)]
@@ -73,9 +75,6 @@ mod tests {
         cartridge.mapper = 99; // Non-existent mapper
 
         let result = create_mapper(cartridge);
-        assert!(matches!(
-            result,
-            Err(MapperError::UnsupportedMapper(99))
-        ));
+        assert!(matches!(result, Err(MapperError::UnsupportedMapper(99))));
     }
 }
