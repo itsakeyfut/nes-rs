@@ -40,6 +40,8 @@ pub enum INesError {
     FileTooSmall,
     /// Invalid file size (doesn't match header specifications)
     InvalidFileSize,
+    /// Unsupported format (iNES 2.0 is not currently supported)
+    UnsupportedFormat,
 }
 
 impl From<io::Error> for INesError {
@@ -56,6 +58,12 @@ impl std::fmt::Display for INesError {
             INesError::FileTooSmall => write!(f, "File too small to be a valid iNES file"),
             INesError::InvalidFileSize => {
                 write!(f, "File size doesn't match header specifications")
+            }
+            INesError::UnsupportedFormat => {
+                write!(
+                    f,
+                    "Unsupported format: iNES 2.0 is not currently supported, only iNES 1.0"
+                )
             }
         }
     }
@@ -135,6 +143,9 @@ impl INesHeader {
     }
 
     /// Check if this is iNES 2.0 format
+    ///
+    /// iNES 2.0 files have different header interpretations and are currently not supported.
+    /// Files detected as iNES 2.0 will be rejected during loading.
     pub fn is_ines2(&self) -> bool {
         (self.flags7 & 0x0C) == 0x08
     }
@@ -170,6 +181,8 @@ impl Cartridge {
     }
 
     /// Load a ROM from iNES format bytes
+    ///
+    /// Note: Only iNES 1.0 format is currently supported. iNES 2.0 files will be rejected.
     pub fn from_ines_bytes(data: &[u8]) -> Result<Self, INesError> {
         if data.len() < INES_HEADER_SIZE {
             return Err(INesError::FileTooSmall);
@@ -177,6 +190,11 @@ impl Cartridge {
 
         // Parse header
         let header = INesHeader::from_bytes(&data[0..INES_HEADER_SIZE])?;
+
+        // Check for unsupported iNES 2.0 format
+        if header.is_ines2() {
+            return Err(INesError::UnsupportedFormat);
+        }
 
         // Calculate expected sizes
         let prg_rom_size = header.prg_rom_banks as usize * PRG_ROM_BANK_SIZE;
@@ -461,5 +479,32 @@ mod tests {
         assert_eq!(cartridge.prg_rom_size(), 0);
         assert_eq!(cartridge.chr_rom_size(), 0);
         assert!(!cartridge.has_trainer());
+    }
+
+    #[test]
+    fn test_ines2_format_rejected() {
+        // Create a valid iNES 2.0 header
+        let mut header = vec![0u8; INES_HEADER_SIZE];
+        header[0..4].copy_from_slice(&INES_MAGIC);
+        header[4] = 2; // PRG-ROM banks
+        header[5] = 1; // CHR-ROM banks
+        header[6] = 0; // Flags 6
+        header[7] = 0x08; // Flags 7: bits 2-3 = 10 indicates iNES 2.0
+
+        // Create complete ROM data
+        let mut rom_data = header;
+        rom_data.extend(vec![0xAA; 32 * 1024]); // PRG-ROM
+        rom_data.extend(vec![0xBB; 8 * 1024]); // CHR-ROM
+
+        // Verify the header is detected as iNES 2.0
+        let parsed_header = INesHeader::from_bytes(&rom_data[0..INES_HEADER_SIZE]).unwrap();
+        assert!(parsed_header.is_ines2());
+
+        // Attempt to load should fail with UnsupportedFormat
+        let result = Cartridge::from_ines_bytes(&rom_data);
+        assert!(
+            matches!(result, Err(INesError::UnsupportedFormat)),
+            "Expected UnsupportedFormat error for iNES 2.0 file"
+        );
     }
 }
