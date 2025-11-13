@@ -160,11 +160,7 @@ mod tests {
     use super::*;
 
     /// Helper function to create a test cartridge
-    fn create_test_cartridge(
-        prg_size: usize,
-        chr_banks: usize,
-        mirroring: Mirroring,
-    ) -> Cartridge {
+    fn create_test_cartridge(prg_size: usize, chr_banks: usize, mirroring: Mirroring) -> Cartridge {
         let prg_rom = vec![0; prg_size];
         let chr_rom = vec![0; chr_banks * CHR_BANK_SIZE];
 
@@ -388,7 +384,7 @@ mod tests {
         for i in 0..256 {
             assert_eq!(
                 mapper.ppu_read(i as u16),
-                ((2 * 0x11) + i) as u8,
+                (0x22 + i) as u8,
                 "Failed at offset {}",
                 i
             );
@@ -401,7 +397,7 @@ mod tests {
         for i in 0..256 {
             assert_eq!(
                 mapper.ppu_read(i as u16),
-                ((1 * 0x11) + i) as u8,
+                (0x11 + i) as u8,
                 "Failed at offset {} after switching",
                 i
             );
