@@ -11,7 +11,7 @@ pub mod ppu;
 
 // Re-export main types for convenience
 pub use apu::Apu;
-pub use bus::Bus;
+pub use bus::{Bus, MemoryMappedDevice};
 pub use cartridge::Cartridge;
 pub use cpu::Cpu;
 pub use input::Controller;
