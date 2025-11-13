@@ -641,4 +641,428 @@ mod tests {
         assert_eq!(mapper.cpu_read(0x6000), 0x42);
         assert_eq!(mapper.cpu_read(0x7FFF), 0x99);
     }
+
+    #[test]
+    fn test_shift_register_partial_writes() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Write 3 bits then reset
+        mapper.cpu_write(0x8000, 0x01);
+        mapper.cpu_write(0x8000, 0x01);
+        mapper.cpu_write(0x8000, 0x01);
+        assert_eq!(mapper.write_count, 3);
+
+        // Reset should clear the count
+        mapper.cpu_write(0x8000, 0x80);
+        assert_eq!(mapper.write_count, 0);
+
+        // Verify control register has reset bits set
+        assert!(mapper.control & 0x0C != 0);
+    }
+
+    #[test]
+    fn test_shift_register_all_ones() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Write 0b11111 (31) to control register
+        for _ in 0..5 {
+            mapper.cpu_write(0x8000, 0x01);
+        }
+
+        assert_eq!(mapper.control, 0x1F);
+    }
+
+    #[test]
+    fn test_shift_register_all_zeros() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Write 0b00000 (0) to control register
+        for _ in 0..5 {
+            mapper.cpu_write(0x8000, 0x00);
+        }
+
+        assert_eq!(mapper.control, 0x00);
+    }
+
+    #[test]
+    fn test_shift_register_alternating_pattern() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Write 0b10101 (21) to control register
+        let pattern = [0x01, 0x00, 0x01, 0x00, 0x01];
+        for &bit in &pattern {
+            mapper.cpu_write(0x8000, bit);
+        }
+
+        assert_eq!(mapper.control, 0b10101);
+    }
+
+    #[test]
+    fn test_multiple_register_writes_in_sequence() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Write to control register: 0,1,0,1,0 -> shift register gets 0b10101
+        for i in 0..5 {
+            mapper.cpu_write(0x8000, i & 1);
+        }
+
+        // Write to CHR bank 0: 1,0,1,0,1 -> shift register gets 0b01010
+        for i in 0..5 {
+            mapper.cpu_write(0xA000, (i + 1) & 1);
+        }
+
+        // Write to CHR bank 1: 0,1,0,1,0 -> shift register gets 0b10101
+        for i in 0..5 {
+            mapper.cpu_write(0xC000, i & 1);
+        }
+
+        // Write to PRG bank: 1,0,1,0,1 -> shift register gets 0b01010
+        for i in 0..5 {
+            mapper.cpu_write(0xE000, (i + 1) & 1);
+        }
+
+        // Verify all registers were set
+        // Note: bits are shifted in LSB first, so pattern 0,1,0,1,0 becomes 0b01010 (LSB->MSB)
+        assert_eq!(mapper.control, 0b01010);
+        assert_eq!(mapper.chr_bank_0, 0b10101);
+        assert_eq!(mapper.chr_bank_1, 0b01010);
+        assert_eq!(mapper.prg_bank, 0b0101); // Only 4 bits used for PRG bank
+    }
+
+    #[test]
+    fn test_bank_switching_does_not_affect_prg_ram() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Write pattern to PRG-RAM
+        for i in 0..256 {
+            mapper.cpu_write(0x6000 + i, i as u8);
+        }
+
+        // Change PRG bank multiple times
+        for bank in 0..4 {
+            for bit in 0..4 {
+                mapper.cpu_write(0xE000, (bank >> bit) & 1);
+            }
+            mapper.cpu_write(0xE000, 0);
+        }
+
+        // Verify PRG-RAM unchanged
+        for i in 0..256 {
+            assert_eq!(mapper.cpu_read(0x6000 + i), i as u8);
+        }
+    }
+
+    #[test]
+    fn test_chr_mode_transition() {
+        let mut cartridge = create_test_cartridge(16, 8);
+
+        // Fill CHR banks with distinct patterns
+        for bank in 0..8 {
+            let start = bank * CHR_BANK_SIZE;
+            for i in 0..CHR_BANK_SIZE {
+                cartridge.chr_rom[start + i] = (bank as u8).wrapping_mul(0x11);
+            }
+        }
+
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Start in 4KB mode (default control = 0x1F, bit 4 = 1)
+        assert_eq!(mapper.get_chr_bank_mode(), ChrBankMode::Switch4KB);
+
+        // Set CHR bank 0 to 2 (0b00010)
+        mapper.cpu_write(0xA000, 0x00);
+        mapper.cpu_write(0xA000, 0x01);
+        mapper.cpu_write(0xA000, 0x00);
+        mapper.cpu_write(0xA000, 0x00);
+        mapper.cpu_write(0xA000, 0x00);
+        assert_eq!(mapper.chr_bank_0, 2);
+
+        // In 4KB mode, reading 0x0000 should give bank 2 data
+        let val_4kb = mapper.ppu_read(0x0000);
+        assert_eq!(val_4kb, 0x22); // bank 2 * 0x11
+
+        // Switch to 8KB mode (control bit 4 = 0)
+        mapper.cpu_write(0x8000, 0x01); // bit 0
+        mapper.cpu_write(0x8000, 0x01); // bit 1
+        mapper.cpu_write(0x8000, 0x00); // bit 2
+        mapper.cpu_write(0x8000, 0x00); // bit 3
+        mapper.cpu_write(0x8000, 0x00); // bit 4 = 0 (8KB mode)
+        assert_eq!(mapper.get_chr_bank_mode(), ChrBankMode::Switch8KB);
+
+        // In 8KB mode with bank 0 = 2, it uses bank >> 1 = 1, so banks 2-3
+        // Reading 0x0000 should give bank 2 data (first half of the 8KB)
+        let val_8kb_0 = mapper.ppu_read(0x0000);
+        assert_eq!(val_8kb_0, 0x22);
+
+        // Reading 0x1000 should give bank 3 data (second half of the 8KB)
+        let val_8kb_1 = mapper.ppu_read(0x1000);
+        assert_eq!(val_8kb_1, 0x33);
+    }
+
+    #[test]
+    fn test_prg_mode_fix_first() {
+        let mut cartridge = create_test_cartridge(8, 32); // 128KB PRG-ROM
+
+        // Fill banks with identifiable patterns
+        for bank in 0..8 {
+            let start = bank * PRG_BANK_SIZE;
+            for i in 0..PRG_BANK_SIZE {
+                cartridge.prg_rom[start + i] = (bank as u8).wrapping_mul(0x20);
+            }
+        }
+
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Default is fix last mode (control = 0x1F, bits 2-3 = 11)
+        // Set to fix first mode: PRG mode bits 2-3 should be 10 (binary)
+        // Control = 0b11000 = bits 0-1: 00, bits 2-3: 10 (FixFirst), bit 4: 1
+        // LSB first: 0, 0, 0, 1, 1
+        mapper.cpu_write(0x8000, 0x00); // bit 0 = 0
+        mapper.cpu_write(0x8000, 0x00); // bit 1 = 0
+        mapper.cpu_write(0x8000, 0x00); // bit 2 = 0
+        mapper.cpu_write(0x8000, 0x01); // bit 3 = 1
+        mapper.cpu_write(0x8000, 0x01); // bit 4 = 1
+        // Results in 0b11000 = bits 2-3 are 10 = FixFirst
+
+        // Verify we're in fix first mode
+        assert_eq!(mapper.get_prg_bank_mode(), PrgBankMode::FixFirst);
+
+        // Select bank 3 for second 16KB (switchable)
+        mapper.cpu_write(0xE000, 0x01); // bit 0 = 1
+        mapper.cpu_write(0xE000, 0x01); // bit 1 = 1
+        mapper.cpu_write(0xE000, 0x00); // bit 2 = 0
+        mapper.cpu_write(0xE000, 0x00); // bit 3 = 0
+        mapper.cpu_write(0xE000, 0x00); // (not used)
+        assert_eq!(mapper.prg_bank, 3);
+
+        // In fix first mode:
+        // - First 16KB (0x8000-0xBFFF) is fixed to bank 0
+        // - Second 16KB (0xC000-0xFFFF) is switchable (bank 3)
+        assert_eq!(mapper.cpu_read(0x8000), 0x00); // bank 0 * 0x20
+        assert_eq!(mapper.cpu_read(0xC000), 0x60); // bank 3 * 0x20
+    }
+
+    #[test]
+    fn test_extreme_bank_numbers() {
+        let mut cartridge = create_test_cartridge(16, 32);
+
+        // Fill with identifiable pattern
+        for bank in 0..16 {
+            let start = bank * PRG_BANK_SIZE;
+            cartridge.prg_rom[start] = (bank as u8).wrapping_mul(0x11);
+        }
+
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Try to select bank 15 (maximum)
+        mapper.cpu_write(0xE000, 0x01);
+        mapper.cpu_write(0xE000, 0x01);
+        mapper.cpu_write(0xE000, 0x01);
+        mapper.cpu_write(0xE000, 0x01);
+        mapper.cpu_write(0xE000, 0x00);
+
+        // In fix last mode, first bank should be bank 15
+        let value = mapper.cpu_read(0x8000);
+        assert_eq!(value, 0xFF); // 15 * 0x11 = 0xFF
+    }
+
+    #[test]
+    fn test_chr_ram_with_banking() {
+        // Create cartridge with CHR-RAM (exactly 8KB of zeros)
+        let prg_rom = vec![0; 16 * PRG_BANK_SIZE];
+        let chr_rom = vec![0; 8 * 1024]; // Exactly 8KB all zeros = CHR-RAM
+
+        let cartridge = Cartridge {
+            prg_rom,
+            chr_rom,
+            trainer: None,
+            mapper: 1,
+            mirroring: Mirroring::Horizontal,
+            has_battery: false,
+        };
+
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Verify it's CHR-RAM
+        assert!(mapper.chr_is_ram);
+
+        // Test basic CHR-RAM write and read functionality
+        for addr in [0x0000, 0x0FFF, 0x1000, 0x1FFF] {
+            let value = ((addr ^ 0xAA) & 0xFF) as u8;
+            mapper.ppu_write(addr, value);
+            assert_eq!(mapper.ppu_read(addr), value);
+        }
+
+        // Verify PPU writes work across the full CHR-RAM range
+        for i in 0..256 {
+            mapper.ppu_write(i, i as u8);
+            assert_eq!(mapper.ppu_read(i), i as u8);
+        }
+    }
+
+    #[test]
+    fn test_prg_ram_full_range() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Test all 8KB of PRG-RAM
+        let test_offsets = [
+            0x0000, 0x0001, 0x00FF, 0x0100, 0x0FFF, 0x1000, 0x1234, 0x1FFF,
+        ];
+
+        for &offset in &test_offsets {
+            let addr = 0x6000 + offset;
+            let value = ((offset ^ 0x55) & 0xFF) as u8;
+            mapper.cpu_write(addr, value);
+            assert_eq!(
+                mapper.cpu_read(addr),
+                value,
+                "PRG-RAM failed at offset {:#X}",
+                offset
+            );
+        }
+    }
+
+    #[test]
+    fn test_reset_clears_partial_writes() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Write partial sequence to multiple registers
+        mapper.cpu_write(0x8000, 0x01);
+        mapper.cpu_write(0x8000, 0x01);
+        assert_eq!(mapper.write_count, 2);
+
+        // Reset
+        mapper.cpu_write(0xA000, 0x80);
+        assert_eq!(mapper.write_count, 0);
+
+        // Start new sequence
+        mapper.cpu_write(0xA000, 0x00);
+        assert_eq!(mapper.write_count, 1);
+    }
+
+    #[test]
+    fn test_mirroring_mode_changes() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Test all mirroring modes
+        let modes = [
+            (0b00, Mirroring::SingleScreen),
+            (0b01, Mirroring::SingleScreen),
+            (0b10, Mirroring::Vertical),
+            (0b11, Mirroring::Horizontal),
+        ];
+
+        for (mode_bits, expected) in modes {
+            // Write mode to control register
+            for bit in 0..2 {
+                mapper.cpu_write(0x8000, (mode_bits >> bit) & 1);
+            }
+            // Fill remaining bits
+            mapper.cpu_write(0x8000, 0x01);
+            mapper.cpu_write(0x8000, 0x01);
+            mapper.cpu_write(0x8000, 0x01);
+
+            assert_eq!(mapper.mirroring(), expected);
+        }
+    }
+
+    #[test]
+    fn test_writes_to_different_register_ranges() {
+        let cartridge = create_test_cartridge(16, 32);
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Write to control via $8000-$9FFF range
+        for _ in 0..5 {
+            mapper.cpu_write(0x9FFF, 0x01);
+        }
+        assert_eq!(mapper.control, 0x1F);
+
+        // Write to CHR bank 0 via $A000-$BFFF range
+        for _ in 0..5 {
+            mapper.cpu_write(0xBFFF, 0x00);
+        }
+        assert_eq!(mapper.chr_bank_0, 0x00);
+
+        // Write to CHR bank 1 via $C000-$DFFF range
+        for _ in 0..5 {
+            mapper.cpu_write(0xDFFF, 0x01);
+        }
+        assert_eq!(mapper.chr_bank_1, 0x1F);
+
+        // Write to PRG bank via $E000-$FFFF range
+        for _ in 0..5 {
+            mapper.cpu_write(0xFFFF, 0x00);
+        }
+        assert_eq!(mapper.prg_bank, 0x00);
+    }
+
+    #[test]
+    fn test_complex_banking_scenario() {
+        let mut cartridge = create_test_cartridge(8, 16);
+
+        // Setup distinct patterns for each PRG bank
+        for bank in 0..8 {
+            let start = bank * PRG_BANK_SIZE;
+            cartridge.prg_rom[start] = bank as u8;
+            cartridge.prg_rom[start + 1] = (bank as u8).wrapping_mul(2);
+        }
+
+        // Setup distinct patterns for each CHR bank
+        for bank in 0..16 {
+            let start = bank * CHR_BANK_SIZE;
+            cartridge.chr_rom[start] = (bank as u8).wrapping_add(0x80);
+        }
+
+        let mut mapper = Mapper1::new(cartridge);
+
+        // Configure: 4KB CHR mode, fix last PRG mode, horizontal mirroring
+        for _ in 0..5 {
+            mapper.cpu_write(0x8000, 0x01);
+        }
+
+        // Set CHR bank 0 to 5
+        mapper.cpu_write(0xA000, 0x01);
+        mapper.cpu_write(0xA000, 0x00);
+        mapper.cpu_write(0xA000, 0x01);
+        mapper.cpu_write(0xA000, 0x00);
+        mapper.cpu_write(0xA000, 0x00);
+
+        // Set CHR bank 1 to 7
+        mapper.cpu_write(0xC000, 0x01);
+        mapper.cpu_write(0xC000, 0x01);
+        mapper.cpu_write(0xC000, 0x01);
+        mapper.cpu_write(0xC000, 0x00);
+        mapper.cpu_write(0xC000, 0x00);
+
+        // Set PRG bank to 2
+        mapper.cpu_write(0xE000, 0x00);
+        mapper.cpu_write(0xE000, 0x01);
+        mapper.cpu_write(0xE000, 0x00);
+        mapper.cpu_write(0xE000, 0x00);
+        mapper.cpu_write(0xE000, 0x00);
+
+        // Verify CHR bank 0 (should be bank 5)
+        assert_eq!(mapper.ppu_read(0x0000), 0x85);
+
+        // Verify CHR bank 1 (should be bank 7)
+        assert_eq!(mapper.ppu_read(0x1000), 0x87);
+
+        // Verify PRG first bank (should be bank 2 in fix last mode)
+        assert_eq!(mapper.cpu_read(0x8000), 0x02);
+
+        // Verify PRG last bank (should be last bank = 7)
+        assert_eq!(mapper.cpu_read(0xC000), 0x07);
+
+        // Verify mirroring
+        assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+    }
 }

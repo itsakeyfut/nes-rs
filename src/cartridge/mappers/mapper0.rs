@@ -344,4 +344,178 @@ mod tests {
         assert_eq!(mapper.cpu_read(0x7FFF), 0);
         assert_eq!(mapper.ppu_read(0x2000), 0);
     }
+
+    #[test]
+    fn test_chr_ram_pattern_persistence() {
+        let cartridge = create_test_cartridge(16 * 1024, 8 * 1024, Mirroring::Horizontal, false);
+        let mut mapper = Mapper0::new(cartridge);
+
+        // Write a pattern to CHR-RAM
+        for i in 0..256 {
+            mapper.ppu_write(i, i as u8);
+        }
+
+        // Verify pattern persists
+        for i in 0..256 {
+            assert_eq!(mapper.ppu_read(i), i as u8);
+        }
+
+        // Write another pattern to a different region
+        for i in 0x1000..0x1100 {
+            mapper.ppu_write(i, ((i >> 4) & 0xFF) as u8);
+        }
+
+        // Verify both patterns coexist
+        for i in 0..256 {
+            assert_eq!(mapper.ppu_read(i), i as u8);
+        }
+        for i in 0x1000..0x1100 {
+            assert_eq!(mapper.ppu_read(i), ((i >> 4) & 0xFF) as u8);
+        }
+    }
+
+    #[test]
+    fn test_prg_rom_mirroring_comprehensive() {
+        let mut cartridge = create_test_cartridge(16 * 1024, 8 * 1024, Mirroring::Horizontal, true);
+
+        // Fill with a distinctive pattern
+        for i in 0..cartridge.prg_rom.len() {
+            cartridge.prg_rom[i] = ((i >> 8) ^ (i & 0xFF)) as u8;
+        }
+
+        let mapper = Mapper0::new(cartridge);
+
+        // Test multiple addresses in mirrored region
+        let test_offsets = [0x0000, 0x1234, 0x2000, 0x3000, 0x3FFF];
+        for offset in test_offsets {
+            let addr_low = 0x8000 + offset;
+            let addr_high = 0xC000 + offset;
+            assert_eq!(
+                mapper.cpu_read(addr_low),
+                mapper.cpu_read(addr_high),
+                "Mirroring mismatch at offset {:#X}",
+                offset
+            );
+        }
+    }
+
+    #[test]
+    fn test_multiple_writes_to_same_chr_ram_location() {
+        let cartridge = create_test_cartridge(16 * 1024, 8 * 1024, Mirroring::Horizontal, false);
+        let mut mapper = Mapper0::new(cartridge);
+
+        let addr = 0x0100;
+
+        // Write multiple times to same location
+        mapper.ppu_write(addr, 0x11);
+        assert_eq!(mapper.ppu_read(addr), 0x11);
+
+        mapper.ppu_write(addr, 0x22);
+        assert_eq!(mapper.ppu_read(addr), 0x22);
+
+        mapper.ppu_write(addr, 0xFF);
+        assert_eq!(mapper.ppu_read(addr), 0xFF);
+
+        mapper.ppu_write(addr, 0x00);
+        assert_eq!(mapper.ppu_read(addr), 0x00);
+    }
+
+    #[test]
+    fn test_chr_rom_multiple_write_attempts() {
+        let mut cartridge = create_test_cartridge(16 * 1024, 8 * 1024, Mirroring::Horizontal, true);
+        cartridge.chr_rom[0x0500] = 0xAB;
+        cartridge.chr_rom[0x1500] = 0xCD;
+
+        let mut mapper = Mapper0::new(cartridge);
+
+        // Attempt multiple writes to CHR-ROM
+        for _ in 0..10 {
+            mapper.ppu_write(0x0500, 0xFF);
+            mapper.ppu_write(0x1500, 0xFF);
+        }
+
+        // Values should remain unchanged
+        assert_eq!(mapper.ppu_read(0x0500), 0xAB);
+        assert_eq!(mapper.ppu_read(0x1500), 0xCD);
+    }
+
+    #[test]
+    fn test_cpu_write_to_all_prg_rom_regions() {
+        let cartridge = create_test_cartridge(32 * 1024, 8 * 1024, Mirroring::Horizontal, true);
+        let mut mapper = Mapper0::new(cartridge);
+
+        // Try writing to various PRG-ROM addresses
+        let test_addresses = [
+            0x8000, 0x9000, 0xA000, 0xB000, 0xC000, 0xD000, 0xE000, 0xF000, 0xFFFF,
+        ];
+
+        let original_values: Vec<u8> = test_addresses
+            .iter()
+            .map(|&addr| mapper.cpu_read(addr))
+            .collect();
+
+        // Attempt writes
+        for &addr in &test_addresses {
+            mapper.cpu_write(addr, 0xFF);
+        }
+
+        // Verify no changes
+        for (i, &addr) in test_addresses.iter().enumerate() {
+            assert_eq!(
+                mapper.cpu_read(addr),
+                original_values[i],
+                "PRG-ROM was modified at {:#X}",
+                addr
+            );
+        }
+    }
+
+    #[test]
+    fn test_single_screen_mirroring() {
+        let cartridge = create_test_cartridge(16 * 1024, 8 * 1024, Mirroring::SingleScreen, true);
+        let mapper = Mapper0::new(cartridge);
+
+        assert_eq!(mapper.mirroring(), Mirroring::SingleScreen);
+    }
+
+    #[test]
+    fn test_chr_ram_full_range_access() {
+        let cartridge = create_test_cartridge(16 * 1024, 8 * 1024, Mirroring::Horizontal, false);
+        let mut mapper = Mapper0::new(cartridge);
+
+        // Test access to all 8KB of CHR-RAM
+        let test_points = [
+            0x0000, 0x0001, 0x00FF, 0x0100, 0x07FF, 0x0800, 0x0FFF, 0x1000, 0x17FF, 0x1800,
+            0x1FFF,
+        ];
+
+        for &addr in &test_points {
+            let value = ((addr ^ 0xAA) & 0xFF) as u8;
+            mapper.ppu_write(addr, value);
+            assert_eq!(
+                mapper.ppu_read(addr),
+                value,
+                "CHR-RAM access failed at {:#X}",
+                addr
+            );
+        }
+    }
+
+    #[test]
+    fn test_prg_rom_32kb_sequential_access() {
+        let mut cartridge = create_test_cartridge(32 * 1024, 8 * 1024, Mirroring::Horizontal, true);
+
+        // Fill with sequential values
+        for i in 0..cartridge.prg_rom.len() {
+            cartridge.prg_rom[i] = (i % 256) as u8;
+        }
+
+        let mapper = Mapper0::new(cartridge);
+
+        // Verify sequential access across banks
+        for i in 0..256 {
+            assert_eq!(mapper.cpu_read(0x8000 + i), (i & 0xFF) as u8);
+            assert_eq!(mapper.cpu_read(0xC000 + i), (i & 0xFF) as u8);
+        }
+    }
 }
