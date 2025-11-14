@@ -1784,7 +1784,10 @@ mod tests {
 
         // Frame buffer should remain unchanged (sprites not rendered)
         let frame = ppu.frame();
-        assert_eq!(frame[0], 0xFF, "Frame should remain unchanged when sprites disabled");
+        assert_eq!(
+            frame[0], 0xFF,
+            "Frame should remain unchanged when sprites disabled"
+        );
     }
 
     #[test]
@@ -1803,8 +1806,16 @@ mod tests {
 
         // Set up sprite tile data in pattern table
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF); // Bitplane 0
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00); // Bitplane 1
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0xFF); // Bitplane 0
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00); // Bitplane 1
         }
 
         // Write sprite data to OAM
@@ -1824,7 +1835,10 @@ mod tests {
         let sprite_pixel_y = 51; // Y + 1
         let sprite_pixel_x = 100;
         let pixel_index = sprite_pixel_y * 256 + sprite_pixel_x;
-        assert_eq!(frame[pixel_index], 0x30, "Sprite should be rendered at position");
+        assert_eq!(
+            frame[pixel_index], 0x30,
+            "Sprite should be rendered at position"
+        );
     }
 
     #[test]
@@ -1843,8 +1857,16 @@ mod tests {
 
         // Set up sprite tile with transparent pixels (color index 0)
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0x00); // All 0s
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0x00); // All 0s
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00);
         }
 
         // Write sprite data
@@ -1867,7 +1889,10 @@ mod tests {
         let sprite_pixel_y = 51;
         let sprite_pixel_x = 100;
         let pixel_index = sprite_pixel_y * 256 + sprite_pixel_x;
-        assert_eq!(frame[pixel_index], 0x0F, "Transparent sprite should not overwrite background");
+        assert_eq!(
+            frame[pixel_index], 0x0F,
+            "Transparent sprite should not overwrite background"
+        );
     }
 
     #[test]
@@ -1886,13 +1911,25 @@ mod tests {
 
         // Create a pattern with horizontal asymmetry (left half filled, right half empty)
         // Bitplane 0: 1111 0000 pattern
-        ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010, 0b11110000);
+        ppu.mapper
+            .as_ref()
+            .unwrap()
+            .borrow_mut()
+            .ppu_write(0x0010, 0b11110000);
         for i in 1..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0b11110000);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0b11110000);
         }
         // Bitplane 1: all 0s
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00);
         }
 
         // Write sprite without flip
@@ -1922,7 +1959,10 @@ mod tests {
         let right_pixel_flip = frame[y * 256 + 107];
 
         assert_eq!(left_pixel_flip, 0x00, "Left side should be empty (flipped)");
-        assert_eq!(right_pixel_flip, 0x30, "Right side should be filled (flipped)");
+        assert_eq!(
+            right_pixel_flip, 0x30,
+            "Right side should be filled (flipped)"
+        );
     }
 
     #[test]
@@ -1941,13 +1981,25 @@ mod tests {
 
         // Create a pattern with vertical asymmetry (top half filled, bottom half empty)
         for i in 0..4 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF); // Top half
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0xFF); // Top half
         }
         for i in 4..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0x00); // Bottom half
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0x00); // Bottom half
         }
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00); // Bitplane 1
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00); // Bitplane 1
         }
 
         // Write sprite without flip
@@ -2000,8 +2052,16 @@ mod tests {
 
         // Set up sprite tile
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF);
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0xFF);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00);
         }
 
         // Write sprite with priority bit set (behind background)
@@ -2027,7 +2087,10 @@ mod tests {
 
         let frame = ppu.frame();
         let pixel = frame[51 * 256 + 100];
-        assert_eq!(pixel, 0x30, "Sprite should show through transparent background");
+        assert_eq!(
+            pixel, 0x30,
+            "Sprite should show through transparent background"
+        );
     }
 
     #[test]
@@ -2050,13 +2113,25 @@ mod tests {
         // Set up two tiles (tile pair for 8x16)
         // Tile 0: top half
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0000 + i, 0xFF);
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0008 + i, 0x00);
+            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(i, 0xFF);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0008 + i, 0x00);
         }
         // Tile 1: bottom half
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0x00);
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0xFF);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0x00);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0xFF);
         }
 
         // Write sprite data (tile index 0, which uses tile pair 0-1)
@@ -2109,8 +2184,16 @@ mod tests {
 
         // Set up sprite tile
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF);
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0xFF);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00);
         }
 
         // Write sprite 0
@@ -2129,7 +2212,11 @@ mod tests {
         ppu.render_sprites();
 
         // Sprite 0 hit should be detected
-        assert_eq!(ppu.ppustatus & 0x40, 0x40, "Sprite 0 hit should be detected");
+        assert_eq!(
+            ppu.ppustatus & 0x40,
+            0x40,
+            "Sprite 0 hit should be detected"
+        );
     }
 
     #[test]
@@ -2148,8 +2235,16 @@ mod tests {
 
         // Set up sprite tile
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF);
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0xFF);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00);
         }
 
         // Write 9 sprites on the same scanline
@@ -2167,7 +2262,11 @@ mod tests {
         ppu.render_sprites();
 
         // Sprite overflow should be detected
-        assert_eq!(ppu.ppustatus & 0x20, 0x20, "Sprite overflow should be detected");
+        assert_eq!(
+            ppu.ppustatus & 0x20,
+            0x20,
+            "Sprite overflow should be detected"
+        );
     }
 
     #[test]
@@ -2208,8 +2307,16 @@ mod tests {
 
         // Set up sprite tiles
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF);
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0xFF);
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00);
         }
 
         // Write two overlapping sprites
@@ -2235,6 +2342,9 @@ mod tests {
 
         // Check overlapping area - sprite 0 has higher priority (lower index)
         let overlap_pixel = frame[51 * 256 + 104];
-        assert_eq!(overlap_pixel, 0x30, "Sprite 0 should have higher priority in overlap");
+        assert_eq!(
+            overlap_pixel, 0x30,
+            "Sprite 0 should have higher priority in overlap"
+        );
     }
 }

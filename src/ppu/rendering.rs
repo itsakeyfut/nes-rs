@@ -261,9 +261,9 @@ impl Ppu {
             oam_index: 0,
         }; 64];
 
-        for i in 0..64 {
+        for (i, sprite) in sprites.iter_mut().enumerate() {
             let base = i * 4;
-            sprites[i] = Sprite {
+            *sprite = Sprite {
                 y: self.oam[base],
                 tile_index: self.oam[base + 1],
                 attributes: self.oam[base + 2],
@@ -444,7 +444,8 @@ impl Ppu {
         // Render each scanline
         for scanline in 0..SCREEN_HEIGHT {
             // Evaluate which sprites are visible on this scanline
-            let (visible_sprites, overflow) = self.evaluate_sprites_for_scanline(scanline, &sprites);
+            let (visible_sprites, overflow) =
+                self.evaluate_sprites_for_scanline(scanline, &sprites);
 
             if overflow {
                 sprite_overflow_occurred = true;
@@ -479,7 +480,8 @@ impl Ppu {
                     // Check for sprite 0 hit
                     if sprite.is_sprite_zero()
                         && background_color != self.palette_ram[0]
-                        && screen_x != 255 {
+                        && screen_x != 255
+                    {
                         sprite_0_hit = true;
                     }
 
