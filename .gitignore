@@ -2,5 +2,8 @@
 
 *.log
 
+# Compiled NES files
+*.nes
+
 # My Private Documents
 docs/
