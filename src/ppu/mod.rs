@@ -1,13 +1,16 @@
 // PPU module - Picture Processing Unit implementation
 // This module contains the PPU (2C02) emulation
 //
-// # PPU Registers (Phase 2 - Stub Implementation)
+// # PPU Registers (Phase 4 - Full Implementation)
 //
 // The PPU has 8 registers mapped at $2000-$2007 in CPU memory space.
 // These registers are mirrored throughout $2008-$3FFF (repeating every 8 bytes).
 //
-// This is a stub implementation for Phase 2. Full PPU functionality will be
-// implemented in Phase 4.
+// This implementation includes full PPU register behavior, including:
+// - Proper internal scroll registers (v, t, x, w)
+// - PPU memory (VRAM) with nametables and palette RAM
+// - PPUDATA read buffering for non-palette addresses
+// - Correct mirroring behavior
 //
 // ## Register Map
 //
@@ -23,6 +26,7 @@
 // | $2007   | PPUDATA    | R/W    | PPU Data Port                  |
 
 use crate::bus::MemoryMappedDevice;
+use crate::cartridge::Mirroring;
 
 // Test-only constants for PPU register addresses
 #[cfg(test)]
@@ -51,63 +55,116 @@ mod test_constants {
 /// Use this mask to get the actual register address: `addr & 0x2007` or `addr & 0x0007`
 const PPU_REGISTER_MASK: u16 = 0x0007;
 
+/// Size of nametable in bytes (1KB)
+const NAMETABLE_SIZE: usize = 1024;
+
+/// Size of palette RAM in bytes
+const PALETTE_SIZE: usize = 32;
+
 /// PPU structure representing the Picture Processing Unit state
 ///
-/// This is a Phase 2 stub implementation. Registers accept writes and return
-/// sensible default values on reads. Full PPU rendering will be implemented in Phase 4.
+/// This is a full implementation of PPU registers with proper behavior.
+/// Includes PPU memory (VRAM), internal scroll registers, and all register behaviors.
 pub struct Ppu {
     // ========================================
     // PPU Registers ($2000-$2007)
     // ========================================
     /// $2000: PPUCTRL - Control register 1
+    ///
+    /// Bit layout:
+    /// - 7: Generate NMI at start of VBlank (0: off, 1: on)
+    /// - 6: PPU master/slave select
+    /// - 5: Sprite size (0: 8x8, 1: 8x16)
+    /// - 4: Background pattern table address (0: $0000, 1: $1000)
+    /// - 3: Sprite pattern table address (0: $0000, 1: $1000)
+    /// - 2: VRAM address increment (0: +1, 1: +32)
+    /// - 1-0: Base nametable address (0: $2000, 1: $2400, 2: $2800, 3: $2C00)
     ppuctrl: u8,
 
     /// $2001: PPUMASK - Control register 2
+    ///
+    /// Bit layout:
+    /// - 7: Emphasize blue
+    /// - 6: Emphasize green
+    /// - 5: Emphasize red
+    /// - 4: Show sprites (0: hide, 1: show)
+    /// - 3: Show background (0: hide, 1: show)
+    /// - 2: Show sprites in leftmost 8 pixels
+    /// - 1: Show background in leftmost 8 pixels
+    /// - 0: Grayscale (0: color, 1: grayscale)
     ppumask: u8,
 
     /// $2002: PPUSTATUS - Status register
-    /// Bit 7: VBlank flag (cleared on read)
-    /// Bit 6: Sprite 0 hit
-    /// Bit 5: Sprite overflow
+    ///
+    /// Bit layout:
+    /// - 7: VBlank flag (cleared on read)
+    /// - 6: Sprite 0 hit
+    /// - 5: Sprite overflow
+    /// - 4-0: Open bus (returns stale PPU bus value)
     ppustatus: u8,
 
     /// $2003: OAMADDR - OAM address
     oam_addr: u8,
 
-    /// $2004: OAMDATA - OAM data buffer
-    /// In the full implementation, this will access the OAM memory
-    oam_data: u8,
-
     // ========================================
-    // Internal State
+    // Internal Scroll Registers
     // ========================================
-    /// Write latch (w register) used by PPUSCROLL and PPUADDR
-    ///
-    /// These registers require two consecutive writes:
-    /// - false (0): Next write is the first write
-    /// - true (1): Next write is the second write
-    ///
-    /// Reading PPUSTATUS resets this latch to false.
-    write_latch: bool,
-
-    /// Temporary storage for PPUADDR
-    ///
-    /// PPUADDR is written in two parts:
-    /// - First write: High byte
-    /// - Second write: Low byte
-    ppu_addr_temp: u8,
-
-    /// Current PPU address (v register)
+    /// v: Current VRAM address (15 bits)
     ///
     /// This is the actual address used when reading/writing PPUDATA.
-    /// In the full implementation, this will be a 15-bit value.
-    ppu_addr: u16,
+    /// Also serves as the current scroll position during rendering.
+    v: u16,
+
+    /// t: Temporary VRAM address (15 bits)
+    ///
+    /// Also serves as temporary storage during address/scroll writes.
+    /// Can be thought of as the "top-left" onscreen address.
+    t: u16,
+
+    /// x: Fine X scroll (3 bits)
+    ///
+    /// The fine X offset within the current tile (0-7 pixels).
+    fine_x: u8,
+
+    /// w: Write toggle (1 bit)
+    ///
+    /// Used by PPUSCROLL and PPUADDR to track which write is next.
+    ///
+    /// - false (0): First write
+    /// - true (1): Second write
+    ///
+    /// Reading PPUSTATUS resets this to false.
+    write_latch: bool,
 
     /// Read buffer for PPUDATA
     ///
     /// Reads from PPUDATA are buffered (delayed by one read) for addresses $0000-$3EFF.
-    /// This simulates the PPU's internal read buffer.
+    /// Palette reads ($3F00-$3FFF) are not buffered.
     read_buffer: u8,
+
+    // ========================================
+    // PPU Memory (VRAM)
+    // ========================================
+    /// Nametables: 2KB of internal VRAM
+    ///
+    /// The NES has 2KB of internal VRAM, which can be configured as:
+    /// - Horizontal mirroring: $2000=$2400, $2800=$2C00
+    /// - Vertical mirroring: $2000=$2800, $2400=$2C00
+    /// - Four-screen: Requires external cartridge RAM (not implemented here)
+    /// - Single-screen: All point to same nametable
+    nametables: [u8; NAMETABLE_SIZE * 2],
+
+    /// Palette RAM: 32 bytes
+    ///
+    /// Layout:
+    /// - $3F00-$3F0F: Background palettes (4 palettes × 4 colors)
+    /// - $3F10-$3F1F: Sprite palettes (4 palettes × 4 colors)
+    ///
+    /// Note: $3F10, $3F14, $3F18, $3F1C are mirrors of $3F00, $3F04, $3F08, $3F0C
+    palette_ram: [u8; PALETTE_SIZE],
+
+    /// Mirroring mode (from cartridge)
+    mirroring: Mirroring,
 
     // ========================================
     // OAM Memory (Object Attribute Memory)
@@ -125,7 +182,7 @@ pub struct Ppu {
 impl Ppu {
     /// Create a new PPU instance with default state
     ///
-    /// Initializes all registers to their power-on state.
+    /// Initializes all registers to their power-on state with horizontal mirroring.
     ///
     /// # Returns
     ///
@@ -145,13 +202,18 @@ impl Ppu {
             ppumask: 0x00,
             ppustatus: 0x00,
             oam_addr: 0x00,
-            oam_data: 0x00,
 
-            // Internal state
+            // Internal scroll registers
+            v: 0x0000,
+            t: 0x0000,
+            fine_x: 0,
             write_latch: false,
-            ppu_addr_temp: 0x00,
-            ppu_addr: 0x0000,
             read_buffer: 0x00,
+
+            // PPU memory
+            nametables: [0; NAMETABLE_SIZE * 2],
+            palette_ram: [0; PALETTE_SIZE],
+            mirroring: Mirroring::Horizontal,
 
             // OAM memory
             oam: [0; 256],
@@ -162,17 +224,42 @@ impl Ppu {
     ///
     /// Resets all registers and internal state to their default values.
     /// This simulates a power cycle or reset signal.
+    /// Note: Mirroring mode is not reset as it comes from the cartridge.
     pub fn reset(&mut self) {
         self.ppuctrl = 0x00;
         self.ppumask = 0x00;
         self.ppustatus = 0x00;
         self.oam_addr = 0x00;
-        self.oam_data = 0x00;
+        self.v = 0x0000;
+        self.t = 0x0000;
+        self.fine_x = 0;
         self.write_latch = false;
-        self.ppu_addr_temp = 0x00;
-        self.ppu_addr = 0x0000;
         self.read_buffer = 0x00;
+        self.nametables = [0; NAMETABLE_SIZE * 2];
+        self.palette_ram = [0; PALETTE_SIZE];
         self.oam = [0; 256];
+    }
+
+    /// Set the mirroring mode
+    ///
+    /// This should be called when loading a cartridge to set the appropriate
+    /// nametable mirroring mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `mirroring` - The mirroring mode to use
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::ppu::Ppu;
+    /// use nes_rs::cartridge::Mirroring;
+    ///
+    /// let mut ppu = Ppu::new();
+    /// ppu.set_mirroring(Mirroring::Vertical);
+    /// ```
+    pub fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
     }
 
     /// Write directly to OAM memory (used by OAM DMA)
@@ -210,6 +297,178 @@ impl Ppu {
         self.oam[addr as usize]
     }
 
+    /// Mirror nametable address based on mirroring mode
+    ///
+    /// The PPU has 2KB of internal VRAM for nametables, but the address space
+    /// allows for 4 nametables ($2000-$2FFF). This function maps a nametable
+    /// address to the appropriate physical memory location based on the mirroring mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Nametable address ($2000-$2FFF)
+    ///
+    /// # Returns
+    ///
+    /// Physical VRAM address (0-2047)
+    fn mirror_nametable_addr(&self, addr: u16) -> usize {
+        // Normalize address to 0-0xFFF range (remove $2000 base)
+        let addr = (addr & 0x0FFF) as usize;
+
+        // Determine which nametable (0-3)
+        let table = addr / NAMETABLE_SIZE;
+        let offset = addr % NAMETABLE_SIZE;
+
+        let mirrored_table = match self.mirroring {
+            Mirroring::Horizontal => {
+                // Horizontal: 0->0, 1->0, 2->1, 3->1
+                // $2000=$2400, $2800=$2C00
+                match table {
+                    0 | 1 => 0,
+                    2 | 3 => 1,
+                    _ => unreachable!(),
+                }
+            }
+            Mirroring::Vertical => {
+                // Vertical: 0->0, 1->1, 2->0, 3->1
+                // $2000=$2800, $2400=$2C00
+                match table {
+                    0 | 2 => 0,
+                    1 | 3 => 1,
+                    _ => unreachable!(),
+                }
+            }
+            Mirroring::SingleScreen => {
+                // All nametables point to the same physical table
+                0
+            }
+            Mirroring::FourScreen => {
+                // Four-screen would require 4KB of VRAM
+                // For now, treat as horizontal mirroring
+                // TODO: Implement four-screen VRAM when cartridge support is added
+                match table {
+                    0 | 1 => 0,
+                    2 | 3 => 1,
+                    _ => unreachable!(),
+                }
+            }
+        };
+
+        mirrored_table * NAMETABLE_SIZE + offset
+    }
+
+    /// Mirror palette address
+    ///
+    /// Palette RAM has special mirroring:
+    /// - $3F10, $3F14, $3F18, $3F1C mirror $3F00, $3F04, $3F08, $3F0C
+    /// - This is because sprite palette entry 0 is actually the background color
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Palette address ($3F00-$3FFF)
+    ///
+    /// # Returns
+    ///
+    /// Physical palette RAM address (0-31)
+    fn mirror_palette_addr(&self, addr: u16) -> usize {
+        // Palette RAM is at $3F00-$3F1F, mirrored every 32 bytes
+        let addr = (addr & 0x001F) as usize;
+
+        // Special mirroring: $3F10, $3F14, $3F18, $3F1C -> $3F00, $3F04, $3F08, $3F0C
+        if addr >= 16 && addr.is_multiple_of(4) {
+            addr - 16
+        } else {
+            addr
+        }
+    }
+
+    /// Read from PPU memory (VRAM)
+    ///
+    /// Handles reading from pattern tables (via cartridge), nametables, and palette RAM.
+    /// This is the internal memory read function used by PPUDATA.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - PPU memory address ($0000-$3FFF)
+    ///
+    /// # Returns
+    ///
+    /// The byte value at the specified address
+    fn read_ppu_memory(&self, addr: u16) -> u8 {
+        let addr = addr & 0x3FFF; // Mirror to 14-bit address space
+
+        match addr {
+            // Pattern tables: $0000-$1FFF
+            // TODO: Read from cartridge CHR-ROM/RAM
+            0x0000..=0x1FFF => {
+                // For now, return 0
+                // In full implementation, this will read from cartridge CHR memory
+                0
+            }
+
+            // Nametables: $2000-$2FFF
+            0x2000..=0x2FFF => {
+                let mirrored_addr = self.mirror_nametable_addr(addr);
+                self.nametables[mirrored_addr]
+            }
+
+            // Nametable mirrors: $3000-$3EFF -> $2000-$2EFF
+            0x3000..=0x3EFF => {
+                let mirrored_addr = self.mirror_nametable_addr(addr - 0x1000);
+                self.nametables[mirrored_addr]
+            }
+
+            // Palette RAM: $3F00-$3FFF
+            0x3F00..=0x3FFF => {
+                let mirrored_addr = self.mirror_palette_addr(addr);
+                self.palette_ram[mirrored_addr]
+            }
+
+            _ => unreachable!(),
+        }
+    }
+
+    /// Write to PPU memory (VRAM)
+    ///
+    /// Handles writing to pattern tables (via cartridge), nametables, and palette RAM.
+    /// This is the internal memory write function used by PPUDATA.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - PPU memory address ($0000-$3FFF)
+    /// * `data` - Byte value to write
+    fn write_ppu_memory(&mut self, addr: u16, data: u8) {
+        let addr = addr & 0x3FFF; // Mirror to 14-bit address space
+
+        match addr {
+            // Pattern tables: $0000-$1FFF
+            // TODO: Write to cartridge CHR-RAM (if present)
+            0x0000..=0x1FFF => {
+                // For now, ignore writes
+                // In full implementation, this will write to cartridge CHR-RAM if present
+            }
+
+            // Nametables: $2000-$2FFF
+            0x2000..=0x2FFF => {
+                let mirrored_addr = self.mirror_nametable_addr(addr);
+                self.nametables[mirrored_addr] = data;
+            }
+
+            // Nametable mirrors: $3000-$3EFF -> $2000-$2EFF
+            0x3000..=0x3EFF => {
+                let mirrored_addr = self.mirror_nametable_addr(addr - 0x1000);
+                self.nametables[mirrored_addr] = data;
+            }
+
+            // Palette RAM: $3F00-$3FFF
+            0x3F00..=0x3FFF => {
+                let mirrored_addr = self.mirror_palette_addr(addr);
+                self.palette_ram[mirrored_addr] = data;
+            }
+
+            _ => unreachable!(),
+        }
+    }
+
     /// Read from a PPU register
     ///
     /// # Arguments
@@ -223,8 +482,8 @@ impl Ppu {
     /// # Register Behaviors
     ///
     /// - PPUSTATUS ($2002): Returns status, clears VBlank flag and address latch
-    /// - OAMDATA ($2004): Returns OAM data (stub: returns 0)
-    /// - PPUDATA ($2007): Returns buffered PPU data (stub: returns 0)
+    /// - OAMDATA ($2004): Returns OAM data at current OAM address
+    /// - PPUDATA ($2007): Returns buffered PPU data (palette reads are immediate)
     /// - Write-only registers: Return 0
     fn read_register(&mut self, register: u16) -> u8 {
         match register {
@@ -246,7 +505,7 @@ impl Ppu {
                 // Clear VBlank flag (bit 7)
                 self.ppustatus &= 0x7F;
 
-                // Reset address latch
+                // Reset address latch (w register)
                 self.write_latch = false;
 
                 status
@@ -270,15 +529,27 @@ impl Ppu {
             }
             7 => {
                 // $2007: PPUDATA - Read/Write
-                // Stub: return buffered value (0)
-                // Full implementation will read from PPU memory
-                let value = self.read_buffer;
-                self.read_buffer = 0; // Stub: would read from PPU memory here
+                // Reading from PPUDATA is buffered for addresses $0000-$3EFF
+                // Palette reads ($3F00-$3FFF) are immediate but still update the buffer
+
+                let addr = self.v & 0x3FFF;
+                let value;
+
+                if addr >= 0x3F00 {
+                    // Palette reads are immediate (not buffered)
+                    value = self.read_ppu_memory(addr);
+                    // But still update the buffer with nametable data "underneath"
+                    // This reads from the mirrored nametable address
+                    self.read_buffer = self.read_ppu_memory(addr & 0x2FFF);
+                } else {
+                    // Normal reads are buffered
+                    value = self.read_buffer;
+                    self.read_buffer = self.read_ppu_memory(addr);
+                }
 
                 // Increment address based on PPUCTRL bit 2
-                // Mask to 0x3FFF to keep within 14-bit PPU address space
                 let increment = if self.ppuctrl & 0x04 != 0 { 32 } else { 1 };
-                self.ppu_addr = self.ppu_addr.wrapping_add(increment) & 0x3FFF;
+                self.v = self.v.wrapping_add(increment) & 0x3FFF;
 
                 value
             }
@@ -298,19 +569,24 @@ impl Ppu {
     ///
     /// # Register Behaviors
     ///
-    /// - PPUCTRL ($2000): Stores control flags
+    /// - PPUCTRL ($2000): Stores control flags and updates nametable select in t
     /// - PPUMASK ($2001): Stores mask flags
     /// - OAMADDR ($2003): Sets OAM address
-    /// - OAMDATA ($2004): Writes to OAM (stub: does nothing)
-    /// - PPUSCROLL ($2005): Sets scroll position (requires 2 writes)
-    /// - PPUADDR ($2006): Sets PPU address (requires 2 writes)
-    /// - PPUDATA ($2007): Writes to PPU memory (stub: does nothing)
+    /// - OAMDATA ($2004): Writes to OAM and increments address
+    /// - PPUSCROLL ($2005): Sets scroll position (requires 2 writes, updates t and x)
+    /// - PPUADDR ($2006): Sets PPU address (requires 2 writes, updates t then v)
+    /// - PPUDATA ($2007): Writes to PPU memory and increments v
     /// - Read-only registers: Writes are ignored
     fn write_register(&mut self, register: u16, data: u8) {
         match register {
             0 => {
                 // $2000: PPUCTRL - Write only
                 self.ppuctrl = data;
+
+                // Update nametable select bits in t register
+                // t: ...GH.. ........ <- d: ......GH
+                // (bits 10-11 of t from bits 0-1 of data)
+                self.t = (self.t & 0xF3FF) | (((data as u16) & 0x03) << 10);
             }
             1 => {
                 // $2001: PPUMASK - Write only
@@ -333,36 +609,52 @@ impl Ppu {
             }
             5 => {
                 // $2005: PPUSCROLL - Write×2
-                // First write: X scroll
-                // Second write: Y scroll
-                // Stub: accept writes but don't use the values
-                // Full implementation will update internal scroll registers
-                self.write_latch = !self.write_latch;
+                // This register uses complex bit manipulation to update the internal
+                // scroll registers (t and fine_x)
+
+                if !self.write_latch {
+                    // First write: X scroll
+                    // t: ....... ...ABCDE <- d: ABCDEFGH
+                    // x:              FGH <- d: ABCDEFGH
+                    self.t = (self.t & 0xFFE0) | ((data as u16) >> 3);
+                    self.fine_x = data & 0x07;
+                    self.write_latch = true;
+                } else {
+                    // Second write: Y scroll
+                    // t: FGH..AB CDE..... <- d: ABCDEFGH
+                    self.t = (self.t & 0x8FFF) | (((data as u16) & 0x07) << 12);
+                    self.t = (self.t & 0xFC1F) | (((data as u16) & 0xF8) << 2);
+                    self.write_latch = false;
+                }
             }
             6 => {
                 // $2006: PPUADDR - Write×2
                 // First write: High byte of address
                 // Second write: Low byte of address
+
                 if !self.write_latch {
-                    // First write: high byte (mask to 6 bits for 14-bit address space)
-                    self.ppu_addr_temp = data & 0x3F;
+                    // First write: high byte
+                    // t: .CDEFGH ........ <- d: ..CDEFGH
+                    // t: X...... ........ <- 0
+                    self.t = (self.t & 0x80FF) | (((data as u16) & 0x3F) << 8);
                     self.write_latch = true;
                 } else {
                     // Second write: low byte
-                    // Assemble and mask to 0x3FFF to keep within 14-bit PPU address space
-                    self.ppu_addr = (((self.ppu_addr_temp as u16) << 8) | (data as u16)) & 0x3FFF;
+                    // t: ....... ABCDEFGH <- d: ABCDEFGH
+                    // v: <...all bits...> <- t: <...all bits...>
+                    self.t = (self.t & 0xFF00) | (data as u16);
+                    self.v = self.t;
                     self.write_latch = false;
                 }
             }
             7 => {
                 // $2007: PPUDATA - Read/Write
-                // Stub: accept write but don't write to PPU memory
-                // Full implementation will write to PPU memory
+                // Write to PPU memory at current address (v)
+                self.write_ppu_memory(self.v, data);
 
                 // Increment address based on PPUCTRL bit 2
-                // Mask to 0x3FFF to keep within 14-bit PPU address space
                 let increment = if self.ppuctrl & 0x04 != 0 { 32 } else { 1 };
-                self.ppu_addr = self.ppu_addr.wrapping_add(increment) & 0x3FFF;
+                self.v = self.v.wrapping_add(increment) & 0x3FFF;
             }
             _ => {
                 // Should not reach here due to masking, but ignore as fallback
@@ -495,7 +787,7 @@ mod tests {
         // Second write: low byte
         ppu.write(PPUADDR, 0x00);
         assert!(!ppu.write_latch);
-        assert_eq!(ppu.ppu_addr, 0x2000);
+        assert_eq!(ppu.v, 0x2000);
     }
 
     #[test]
@@ -557,44 +849,44 @@ mod tests {
     #[test]
     fn test_read_ppudata_increments_addr() {
         let mut ppu = Ppu::new();
-        ppu.ppu_addr = 0x2000;
+        ppu.v = 0x2000;
         ppu.ppuctrl = 0x00; // Increment by 1
 
         ppu.read(PPUDATA);
-        assert_eq!(ppu.ppu_addr, 0x2001);
+        assert_eq!(ppu.v, 0x2001);
 
         ppu.read(PPUDATA);
-        assert_eq!(ppu.ppu_addr, 0x2002);
+        assert_eq!(ppu.v, 0x2002);
     }
 
     #[test]
     fn test_read_ppudata_increments_by_32() {
         let mut ppu = Ppu::new();
-        ppu.ppu_addr = 0x2000;
+        ppu.v = 0x2000;
         ppu.ppuctrl = 0x04; // Increment by 32
 
         ppu.read(PPUDATA);
-        assert_eq!(ppu.ppu_addr, 0x2020);
+        assert_eq!(ppu.v, 0x2020);
     }
 
     #[test]
     fn test_write_ppudata_increments_addr() {
         let mut ppu = Ppu::new();
-        ppu.ppu_addr = 0x2000;
+        ppu.v = 0x2000;
         ppu.ppuctrl = 0x00; // Increment by 1
 
         ppu.write(PPUDATA, 0x42);
-        assert_eq!(ppu.ppu_addr, 0x2001);
+        assert_eq!(ppu.v, 0x2001);
     }
 
     #[test]
     fn test_write_ppudata_increments_by_32() {
         let mut ppu = Ppu::new();
-        ppu.ppu_addr = 0x2000;
+        ppu.v = 0x2000;
         ppu.ppuctrl = 0x04; // Increment by 32
 
         ppu.write(PPUDATA, 0x42);
-        assert_eq!(ppu.ppu_addr, 0x2020);
+        assert_eq!(ppu.v, 0x2020);
     }
 
     // ========================================
@@ -663,7 +955,7 @@ mod tests {
         // Write low byte
         ppu.write(PPUADDR, 0x00);
         assert!(!ppu.write_latch);
-        assert_eq!(ppu.ppu_addr, 0x3F00);
+        assert_eq!(ppu.v, 0x3F00);
     }
 
     #[test]
@@ -673,12 +965,12 @@ mod tests {
         // First sequence
         ppu.write(PPUADDR, 0x20);
         ppu.write(PPUADDR, 0x00);
-        assert_eq!(ppu.ppu_addr, 0x2000);
+        assert_eq!(ppu.v, 0x2000);
 
         // Second sequence
         ppu.write(PPUADDR, 0x3F);
         ppu.write(PPUADDR, 0x10);
-        assert_eq!(ppu.ppu_addr, 0x3F10);
+        assert_eq!(ppu.v, 0x3F10);
     }
 
     #[test]
@@ -698,7 +990,7 @@ mod tests {
         assert!(ppu.write_latch);
 
         ppu.write(PPUADDR, 0x00);
-        assert_eq!(ppu.ppu_addr, 0x3F00);
+        assert_eq!(ppu.v, 0x3F00);
     }
 
     // ========================================
@@ -729,10 +1021,10 @@ mod tests {
 
         // Write data
         ppu.write(PPUDATA, 0x42);
-        assert_eq!(ppu.ppu_addr, 0x2001);
+        assert_eq!(ppu.v, 0x2001);
 
         ppu.write(PPUDATA, 0x43);
-        assert_eq!(ppu.ppu_addr, 0x2002);
+        assert_eq!(ppu.v, 0x2002);
     }
 
     #[test]
@@ -765,7 +1057,7 @@ mod tests {
         ppu.write(PPUADDR, 0xFF); // Low byte
 
         // Should be masked to 0x3FFF (high byte masked to 0x3F)
-        assert_eq!(ppu.ppu_addr, 0x3FFF);
+        assert_eq!(ppu.v, 0x3FFF);
     }
 
     #[test]
@@ -775,12 +1067,12 @@ mod tests {
         // Set address to 0x3FFF
         ppu.write(PPUADDR, 0x3F);
         ppu.write(PPUADDR, 0xFF);
-        assert_eq!(ppu.ppu_addr, 0x3FFF);
+        assert_eq!(ppu.v, 0x3FFF);
 
         // Increment by 1 should wrap to 0x0000
         ppu.ppuctrl = 0x00; // Increment by 1
         ppu.write(PPUDATA, 0x42);
-        assert_eq!(ppu.ppu_addr, 0x0000);
+        assert_eq!(ppu.v, 0x0000);
     }
 
     #[test]
@@ -789,11 +1081,11 @@ mod tests {
         ppu.ppuctrl = 0x00; // Increment by 1
 
         // Set address to near boundary
-        ppu.ppu_addr = 0x3FFF;
+        ppu.v = 0x3FFF;
 
         // Read should increment and wrap
         ppu.read(PPUDATA);
-        assert_eq!(ppu.ppu_addr, 0x0000);
+        assert_eq!(ppu.v, 0x0000);
     }
 
     #[test]
@@ -802,11 +1094,11 @@ mod tests {
         ppu.ppuctrl = 0x04; // Increment by 32
 
         // Set address near boundary
-        ppu.ppu_addr = 0x3FF0;
+        ppu.v = 0x3FF0;
 
         // Write should increment by 32 and wrap
         ppu.write(PPUDATA, 0x42);
-        assert_eq!(ppu.ppu_addr, 0x0010); // (0x3FF0 + 32) & 0x3FFF = 0x0010
+        assert_eq!(ppu.v, 0x0010); // (0x3FF0 + 32) & 0x3FFF = 0x0010
     }
 
     #[test]
@@ -820,11 +1112,285 @@ mod tests {
 
             // Address should always be masked to 0x3FFF or less
             assert!(
-                ppu.ppu_addr <= 0x3FFF,
+                ppu.v <= 0x3FFF,
                 "Address 0x{:04X} exceeds 14-bit range (high byte was 0x{:02X})",
-                ppu.ppu_addr,
+                ppu.v,
                 high_byte
             );
         }
+    }
+
+    // ========================================
+    // PPU Memory (VRAM) Tests
+    // ========================================
+
+    #[test]
+    fn test_nametable_read_write() {
+        let mut ppu = Ppu::new();
+
+        // Write to nametable
+        ppu.write(PPUADDR, 0x20);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x42);
+
+        // Read back from nametable
+        ppu.write(PPUADDR, 0x20);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read (buffered)
+        let value = ppu.read(PPUDATA); // Actual value
+        assert_eq!(value, 0x42);
+    }
+
+    #[test]
+    fn test_nametable_horizontal_mirroring() {
+        let mut ppu = Ppu::new();
+        ppu.set_mirroring(Mirroring::Horizontal);
+
+        // Write to $2000
+        ppu.write(PPUADDR, 0x20);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x11);
+
+        // Read from $2400 (should be same as $2000 with horizontal mirroring)
+        ppu.write(PPUADDR, 0x24);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x11);
+
+        // Write to $2800
+        ppu.write(PPUADDR, 0x28);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x22);
+
+        // Read from $2C00 (should be same as $2800)
+        ppu.write(PPUADDR, 0x2C);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x22);
+    }
+
+    #[test]
+    fn test_nametable_vertical_mirroring() {
+        let mut ppu = Ppu::new();
+        ppu.set_mirroring(Mirroring::Vertical);
+
+        // Write to $2000
+        ppu.write(PPUADDR, 0x20);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x11);
+
+        // Read from $2800 (should be same as $2000 with vertical mirroring)
+        ppu.write(PPUADDR, 0x28);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x11);
+
+        // Write to $2400
+        ppu.write(PPUADDR, 0x24);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x22);
+
+        // Read from $2C00 (should be same as $2400)
+        ppu.write(PPUADDR, 0x2C);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x22);
+    }
+
+    #[test]
+    fn test_nametable_mirror_at_3000() {
+        let mut ppu = Ppu::new();
+
+        // Write to $2000
+        ppu.write(PPUADDR, 0x20);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x42);
+
+        // Read from $3000 (mirrors $2000)
+        ppu.write(PPUADDR, 0x30);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x42);
+    }
+
+    #[test]
+    fn test_palette_read_write() {
+        let mut ppu = Ppu::new();
+
+        // Write to background palette
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x0F); // Black
+
+        // Palette reads are immediate (not buffered)
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0x00);
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x0F);
+    }
+
+    #[test]
+    fn test_palette_mirroring() {
+        let mut ppu = Ppu::new();
+
+        // Write to $3F00 (background palette 0, color 0)
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x0F);
+
+        // Read from $3F10 (sprite palette 0, color 0 - mirrors $3F00)
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0x10);
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x0F);
+
+        // Write to $3F04
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0x04);
+        ppu.write(PPUDATA, 0x30);
+
+        // Read from $3F14 (mirrors $3F04)
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0x14);
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x30);
+    }
+
+    #[test]
+    fn test_ppudata_read_buffering() {
+        let mut ppu = Ppu::new();
+
+        // Write to nametable
+        ppu.write(PPUADDR, 0x20);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0xAA);
+        ppu.write(PPUDATA, 0xBB);
+
+        // First read is buffered (returns stale data)
+        ppu.write(PPUADDR, 0x20);
+        ppu.write(PPUADDR, 0x00);
+        let first_read = ppu.read(PPUDATA);
+        assert_eq!(first_read, 0x00); // Stale buffer value
+
+        // Second read returns the first byte
+        let second_read = ppu.read(PPUDATA);
+        assert_eq!(second_read, 0xAA);
+
+        // Third read returns the second byte
+        let third_read = ppu.read(PPUDATA);
+        assert_eq!(third_read, 0xBB);
+    }
+
+    #[test]
+    fn test_ppudata_palette_read_not_buffered() {
+        let mut ppu = Ppu::new();
+
+        // Write to palette
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x0F);
+
+        // Palette reads are immediate (not buffered)
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0x00);
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x0F); // Immediate, not buffered
+    }
+
+    // ========================================
+    // PPUCTRL Effects on Internal Registers
+    // ========================================
+
+    #[test]
+    fn test_ppuctrl_updates_t_register() {
+        let mut ppu = Ppu::new();
+
+        // Write to PPUCTRL should update bits 10-11 of t register
+        ppu.write(PPUCTRL, 0x03); // Nametable select = 3
+        assert_eq!(ppu.t & 0x0C00, 0x0C00); // Bits 10-11 should be set
+
+        ppu.write(PPUCTRL, 0x01); // Nametable select = 1
+        assert_eq!(ppu.t & 0x0C00, 0x0400); // Bit 10 should be set, bit 11 clear
+    }
+
+    // ========================================
+    // PPUSCROLL Internal Register Tests
+    // ========================================
+
+    #[test]
+    fn test_ppuscroll_updates_t_and_fine_x() {
+        let mut ppu = Ppu::new();
+
+        // First write: X scroll
+        ppu.write(PPUSCROLL, 0xF8); // Binary: 11111000
+        assert_eq!(ppu.t & 0x001F, 0x1F); // Coarse X = 11111 (0x1F)
+        assert_eq!(ppu.fine_x, 0); // Fine X = 000
+
+        // Second write: Y scroll
+        ppu.write(PPUSCROLL, 0xE5); // Binary: 11100101
+                                    // Fine Y (top 3 bits) should be in bits 12-14 of t: 111
+        assert_eq!((ppu.t >> 12) & 0x07, 0x05); // Fine Y = 101
+                                                // Coarse Y (bottom 5 bits) should be in bits 5-9 of t: 00101
+        assert_eq!((ppu.t >> 5) & 0x1F, 0x1C); // Coarse Y = 11100
+    }
+
+    #[test]
+    fn test_ppuscroll_write_latch() {
+        let mut ppu = Ppu::new();
+
+        assert!(!ppu.write_latch);
+
+        // First write
+        ppu.write(PPUSCROLL, 0x00);
+        assert!(ppu.write_latch);
+
+        // Second write
+        ppu.write(PPUSCROLL, 0x00);
+        assert!(!ppu.write_latch);
+
+        // Third write (first again)
+        ppu.write(PPUSCROLL, 0x00);
+        assert!(ppu.write_latch);
+    }
+
+    // ========================================
+    // PPUADDR Internal Register Tests
+    // ========================================
+
+    #[test]
+    fn test_ppuaddr_updates_t_then_v() {
+        let mut ppu = Ppu::new();
+
+        // First write should update t but not v
+        ppu.write(PPUADDR, 0x20);
+        assert_eq!(ppu.t & 0xFF00, 0x2000);
+        assert_eq!(ppu.v, 0x0000); // v should not change yet
+
+        // Second write should update t and copy to v
+        ppu.write(PPUADDR, 0x50);
+        assert_eq!(ppu.t, 0x2050);
+        assert_eq!(ppu.v, 0x2050); // v should now match t
+    }
+
+    #[test]
+    fn test_ppuaddr_and_ppuscroll_share_write_latch() {
+        let mut ppu = Ppu::new();
+
+        // Start writing to PPUSCROLL
+        ppu.write(PPUSCROLL, 0x10);
+        assert!(ppu.write_latch);
+
+        // Read PPUSTATUS should reset latch
+        ppu.read(PPUSTATUS);
+        assert!(!ppu.write_latch);
+
+        // Next write to PPUADDR should be first write
+        ppu.write(PPUADDR, 0x20);
+        assert!(ppu.write_latch);
     }
 }
