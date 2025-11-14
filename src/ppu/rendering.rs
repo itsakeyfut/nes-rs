@@ -795,11 +795,6 @@ impl Ppu {
     ///
     /// This also sets the sprite overflow flag if more than 8 sprites are found.
     pub(super) fn evaluate_sprites_for_next_scanline(&mut self) {
-        // Clear sprite 0 hit flag at the start of frame
-        if self.scanline == 0 {
-            self.ppustatus &= !0x40;
-        }
-
         // The next scanline is the current scanline + 1
         let next_scanline = self.scanline + 1;
 
