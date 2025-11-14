@@ -9,10 +9,12 @@ mod mapper2;
 mod mapper3;
 
 use super::{Cartridge, Mapper};
-use mapper0::Mapper0;
-use mapper1::Mapper1;
-use mapper2::Mapper2;
-use mapper3::Mapper3;
+
+// Re-export mapper implementations for use in tests and direct instantiation
+pub use mapper0::Mapper0;
+pub use mapper1::Mapper1;
+pub use mapper2::Mapper2;
+pub use mapper3::Mapper3;
 
 /// Error type for mapper creation
 #[derive(Debug)]

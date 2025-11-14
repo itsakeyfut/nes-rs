@@ -26,7 +26,9 @@
 // | $2007   | PPUDATA    | R/W    | PPU Data Port                  |
 
 use crate::bus::MemoryMappedDevice;
-use crate::cartridge::Mirroring;
+use crate::cartridge::{Mapper, Mirroring};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 // Test-only constants for PPU register addresses
 #[cfg(test)]
@@ -166,6 +168,13 @@ pub struct Ppu {
     /// Mirroring mode (from cartridge)
     mirroring: Mirroring,
 
+    /// Mapper for CHR-ROM/RAM access (pattern tables)
+    ///
+    /// Pattern tables ($0000-$1FFF) are stored in cartridge CHR-ROM or CHR-RAM.
+    /// The mapper provides the interface to read/write this memory.
+    /// None if no cartridge is loaded.
+    mapper: Option<Rc<RefCell<Box<dyn Mapper>>>>,
+
     // ========================================
     // OAM Memory (Object Attribute Memory)
     // ========================================
@@ -214,6 +223,7 @@ impl Ppu {
             nametables: [0; NAMETABLE_SIZE * 2],
             palette_ram: [0; PALETTE_SIZE],
             mirroring: Mirroring::Horizontal,
+            mapper: None,
 
             // OAM memory
             oam: [0; 256],
@@ -260,6 +270,35 @@ impl Ppu {
     /// ```
     pub fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
+    }
+
+    /// Set the mapper for CHR-ROM/RAM access
+    ///
+    /// This should be called when loading a cartridge to provide access to
+    /// pattern table memory (CHR-ROM or CHR-RAM).
+    ///
+    /// # Arguments
+    ///
+    /// * `mapper` - Shared reference to the cartridge mapper
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use nes_rs::ppu::Ppu;
+    /// use nes_rs::cartridge::{Cartridge, Mapper};
+    /// use nes_rs::cartridge::mappers::Mapper0;
+    /// use std::rc::Rc;
+    /// use std::cell::RefCell;
+    ///
+    /// let mut ppu = Ppu::new();
+    /// let cartridge = Cartridge::from_ines_file("game.nes").unwrap();
+    /// let mapper = Rc::new(RefCell::new(Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>));
+    /// ppu.set_mapper(mapper);
+    /// ```
+    pub fn set_mapper(&mut self, mapper: Rc<RefCell<Box<dyn Mapper>>>) {
+        // Also update mirroring from the mapper
+        self.mirroring = mapper.borrow().mirroring();
+        self.mapper = Some(mapper);
     }
 
     /// Write directly to OAM memory (used by OAM DMA)
@@ -398,11 +437,14 @@ impl Ppu {
 
         match addr {
             // Pattern tables: $0000-$1FFF
-            // TODO: Read from cartridge CHR-ROM/RAM
+            // Read from cartridge CHR-ROM/RAM via mapper
             0x0000..=0x1FFF => {
-                // For now, return 0
-                // In full implementation, this will read from cartridge CHR memory
-                0
+                if let Some(ref mapper) = self.mapper {
+                    mapper.borrow().ppu_read(addr)
+                } else {
+                    // No cartridge loaded, return 0
+                    0
+                }
             }
 
             // Nametables: $2000-$2FFF
@@ -441,10 +483,12 @@ impl Ppu {
 
         match addr {
             // Pattern tables: $0000-$1FFF
-            // TODO: Write to cartridge CHR-RAM (if present)
+            // Write to cartridge CHR-RAM (if present) via mapper
             0x0000..=0x1FFF => {
-                // For now, ignore writes
-                // In full implementation, this will write to cartridge CHR-RAM if present
+                if let Some(ref mapper) = self.mapper {
+                    mapper.borrow_mut().ppu_write(addr, data);
+                }
+                // If no cartridge loaded, ignore writes
             }
 
             // Nametables: $2000-$2FFF
@@ -706,6 +750,8 @@ impl Default for Ppu {
 mod tests {
     use super::test_constants::*;
     use super::*;
+    use crate::cartridge::mappers::Mapper0;
+    use crate::cartridge::Cartridge;
 
     // ========================================
     // Initialization Tests
@@ -1392,5 +1438,288 @@ mod tests {
         // Next write to PPUADDR should be first write
         ppu.write(PPUADDR, 0x20);
         assert!(ppu.write_latch);
+    }
+
+    // ========================================
+    // Pattern Table (CHR-ROM/RAM) Tests
+    // ========================================
+
+    /// Helper function to create a test cartridge with CHR-ROM
+    fn create_test_cartridge_chr_rom() -> Cartridge {
+        let prg_rom = vec![0xAA; 16 * 1024]; // 16KB PRG-ROM
+        let mut chr_rom = vec![0x00; 8 * 1024]; // 8KB CHR-ROM
+
+        // Fill CHR-ROM with identifiable pattern
+        for (i, byte) in chr_rom.iter_mut().enumerate() {
+            *byte = (i & 0xFF) as u8;
+        }
+
+        Cartridge {
+            prg_rom,
+            chr_rom,
+            trainer: None,
+            mapper: 0,
+            mirroring: Mirroring::Horizontal,
+            has_battery: false,
+        }
+    }
+
+    /// Helper function to create a test cartridge with CHR-RAM
+    fn create_test_cartridge_chr_ram() -> Cartridge {
+        let prg_rom = vec![0xAA; 16 * 1024]; // 16KB PRG-ROM
+        let chr_rom = vec![0x00; 8 * 1024]; // 8KB CHR-RAM (all zeros indicates RAM)
+
+        Cartridge {
+            prg_rom,
+            chr_rom,
+            trainer: None,
+            mapper: 0,
+            mirroring: Mirroring::Horizontal,
+            has_battery: false,
+        }
+    }
+
+    #[test]
+    fn test_pattern_table_without_mapper() {
+        let mut ppu = Ppu::new();
+
+        // Without a mapper, pattern table reads should return 0
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read (buffered)
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x00, "Pattern table should return 0 without mapper");
+
+        // Writes should be ignored
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0xFF);
+
+        // Read back should still be 0
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x00);
+    }
+
+    #[test]
+    fn test_pattern_table_read_chr_rom() {
+        let mut ppu = Ppu::new();
+        let cartridge = create_test_cartridge_chr_rom();
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Read from pattern table 0 ($0000-$0FFF)
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read (buffered)
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x00, "CHR-ROM[0x0000] should be 0x00");
+
+        // Read from pattern table 0, offset 0x0100
+        ppu.write(PPUADDR, 0x01);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x00, "CHR-ROM[0x0100] should be 0x00");
+
+        // Read from pattern table 1 ($1000-$1FFF)
+        ppu.write(PPUADDR, 0x10);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x00, "CHR-ROM[0x1000] should be 0x00");
+    }
+
+    #[test]
+    fn test_pattern_table_write_chr_ram() {
+        let mut ppu = Ppu::new();
+        let cartridge = create_test_cartridge_chr_ram();
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Write to pattern table 0
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x42);
+
+        // Read back
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read (buffered)
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x42, "CHR-RAM should be writable");
+
+        // Write to pattern table 1
+        ppu.write(PPUADDR, 0x10);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x99);
+
+        // Read back
+        ppu.write(PPUADDR, 0x10);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0x99, "CHR-RAM pattern table 1 should be writable");
+    }
+
+    #[test]
+    fn test_pattern_table_chr_rom_write_ignored() {
+        let mut ppu = Ppu::new();
+        let mut cartridge = create_test_cartridge_chr_rom();
+
+        // Set specific values in CHR-ROM
+        cartridge.chr_rom[0x0000] = 0xAA;
+        cartridge.chr_rom[0x1000] = 0xBB;
+
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Try to write to CHR-ROM (should be ignored)
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0xFF);
+
+        // Read back - should still have original value
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(value, 0xAA, "CHR-ROM should not be writable");
+
+        // Try to write to pattern table 1
+        ppu.write(PPUADDR, 0x10);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0xFF);
+
+        // Read back
+        ppu.write(PPUADDR, 0x10);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+        let value = ppu.read(PPUDATA);
+        assert_eq!(
+            value, 0xBB,
+            "CHR-ROM pattern table 1 should not be writable"
+        );
+    }
+
+    #[test]
+    fn test_set_mapper_updates_mirroring() {
+        let mut ppu = Ppu::new();
+
+        // Initial mirroring is Horizontal
+        assert_eq!(ppu.mirroring, Mirroring::Horizontal);
+
+        // Create a cartridge with Vertical mirroring
+        let mut cartridge = create_test_cartridge_chr_rom();
+        cartridge.mirroring = Mirroring::Vertical;
+
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Mirroring should be updated
+        assert_eq!(ppu.mirroring, Mirroring::Vertical);
+    }
+
+    #[test]
+    fn test_pattern_table_full_range() {
+        let mut ppu = Ppu::new();
+        let cartridge = create_test_cartridge_chr_ram();
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Write to various addresses across both pattern tables
+        let test_addresses = [0x0000, 0x0001, 0x00FF, 0x0100, 0x0FFF, 0x1000, 0x1FFF];
+
+        for (i, &addr) in test_addresses.iter().enumerate() {
+            let test_value = (0x10 + i) as u8;
+
+            // Write
+            ppu.write(PPUADDR, (addr >> 8) as u8);
+            ppu.write(PPUADDR, (addr & 0xFF) as u8);
+            ppu.write(PPUDATA, test_value);
+
+            // Read back
+            ppu.write(PPUADDR, (addr >> 8) as u8);
+            ppu.write(PPUADDR, (addr & 0xFF) as u8);
+            let _ = ppu.read(PPUDATA); // Dummy read
+            let value = ppu.read(PPUDATA);
+
+            assert_eq!(
+                value, test_value,
+                "CHR-RAM at address ${:04X} should be writable",
+                addr
+            );
+        }
+    }
+
+    #[test]
+    fn test_pattern_table_sequential_access() {
+        let mut ppu = Ppu::new();
+        let cartridge = create_test_cartridge_chr_ram();
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Set increment to +1
+        ppu.write(PPUCTRL, 0x00);
+
+        // Write sequential data
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        for i in 0..16 {
+            ppu.write(PPUDATA, i);
+        }
+
+        // Read back sequential data
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+
+        for i in 0..16 {
+            let value = ppu.read(PPUDATA);
+            assert_eq!(value, i, "Sequential CHR-RAM read failed at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_pattern_table_increment_32() {
+        let mut ppu = Ppu::new();
+        let cartridge = create_test_cartridge_chr_ram();
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Set increment to +32
+        ppu.write(PPUCTRL, 0x04);
+
+        // Write data with +32 increment
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x11); // $0000
+        ppu.write(PPUDATA, 0x22); // $0020
+        ppu.write(PPUDATA, 0x33); // $0040
+
+        // Read back with +32 increment
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+        let _ = ppu.read(PPUDATA); // Dummy read
+
+        assert_eq!(ppu.read(PPUDATA), 0x11); // $0000
+        assert_eq!(ppu.read(PPUDATA), 0x22); // $0020
+        assert_eq!(ppu.read(PPUDATA), 0x33); // $0040
     }
 }
