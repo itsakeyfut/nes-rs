@@ -1,34 +1,31 @@
 // NES Emulator - Main Entry Point
-use nes_rs::{Apu, Bus, Cartridge, Controller, Cpu, Ppu};
+//
+// This is a demonstration of the display system with a test pattern.
+// Eventually, this will integrate with the full emulator (CPU, PPU, etc.)
 
-fn main() {
+use nes_rs::display::{run_display, WindowConfig};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("NES Emulator (nes-rs) v0.1.0");
     println!("==============================");
+    println!();
+    println!("Display System Test");
+    println!("-------------------");
+    println!();
 
-    // Initialize all components
-    let cpu = Cpu::new();
-    let _ppu = Ppu::new();
-    let _apu = Apu::new();
-    let _bus = Bus::new();
-    let _cartridge = Cartridge::new();
-    let _controller = Controller::new();
+    // Create window configuration
+    // Default: 3x scale, 60 FPS, VSync enabled
+    let config = WindowConfig::new()
+        .with_scale(3) // 768x720 window (256x240 * 3)
+        .with_fps(60) // 60 FPS (NTSC)
+        .with_vsync(true); // Enable VSync for smooth display
 
-    println!("\nComponents initialized:");
-    println!("  [✓] CPU (6502)");
-    println!("  [✓] PPU (2C02)");
-    println!("  [✓] APU");
-    println!("  [✓] Memory Bus");
-    println!("  [✓] Cartridge");
-    println!("  [✓] Controller");
+    // Run the display window with test pattern
+    println!("Press the close button or Ctrl+C to exit.");
+    println!();
 
-    println!("\nCPU State:");
-    println!("  A: ${:02X}", cpu.a);
-    println!("  X: ${:02X}", cpu.x);
-    println!("  Y: ${:02X}", cpu.y);
-    println!("  SP: ${:02X}", cpu.sp);
-    println!("  PC: ${:04X}", cpu.pc);
-    println!("  Status: ${:02X}", cpu.status);
+    run_display(config)?;
 
-    println!("\nProject structure setup complete!");
-    println!("Ready for Phase 1: CPU Implementation");
+    println!("Display window closed.");
+    Ok(())
 }
