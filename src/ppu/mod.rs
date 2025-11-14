@@ -2868,4 +2868,135 @@ mod tests {
             "Rendering should be disabled with neither"
         );
     }
+
+    #[test]
+    fn test_odd_frame_skips_last_cycle() {
+        let mut ppu = Ppu::new();
+
+        // Enable rendering to trigger odd frame behavior
+        ppu.ppumask = 0x18; // Enable background and sprites
+
+        // Execute until pre-render scanline 261, cycle 339 on frame 1 (odd)
+        // First complete frame 0 (even frame)
+        while ppu.frame_count() < 1 {
+            ppu.step();
+        }
+
+        assert_eq!(ppu.frame_count(), 1, "Should be on frame 1");
+        assert_eq!(ppu.scanline(), 0, "Should be at scanline 0");
+        assert_eq!(ppu.cycle(), 0, "Should be at cycle 0");
+
+        // Now on frame 1 (odd), advance to scanline 261
+        while ppu.scanline() < PRERENDER_SCANLINE {
+            for _ in 0..CYCLES_PER_SCANLINE {
+                ppu.step();
+            }
+        }
+
+        assert_eq!(
+            ppu.scanline(),
+            PRERENDER_SCANLINE,
+            "Should be at pre-render scanline"
+        );
+
+        // Advance to cycle 339 (CYCLES_PER_SCANLINE - 2)
+        // We need to advance 339 cycles (0 to 339)
+        for _ in 0..339 {
+            ppu.step();
+        }
+
+        assert_eq!(ppu.scanline(), PRERENDER_SCANLINE);
+        assert_eq!(ppu.cycle(), 339);
+
+        // Next step should skip cycle 340 and complete the frame
+        let frame_complete = ppu.step();
+
+        assert!(frame_complete, "Frame should complete");
+        assert_eq!(ppu.frame_count(), 2, "Should advance to frame 2");
+        assert_eq!(ppu.scanline(), 0, "Should wrap to scanline 0");
+        assert_eq!(ppu.cycle(), 0, "Should reset to cycle 0");
+    }
+
+    #[test]
+    fn test_even_frame_does_not_skip_last_cycle() {
+        let mut ppu = Ppu::new();
+
+        // Enable rendering
+        ppu.ppumask = 0x18;
+
+        // Frame 0 is even, advance to scanline 261, cycle 339
+        while ppu.scanline() < PRERENDER_SCANLINE {
+            for _ in 0..CYCLES_PER_SCANLINE {
+                ppu.step();
+            }
+        }
+
+        // Advance to cycle 339
+        for _ in 0..339 {
+            ppu.step();
+        }
+
+        assert_eq!(ppu.scanline(), PRERENDER_SCANLINE);
+        assert_eq!(ppu.cycle(), 339);
+        assert_eq!(ppu.frame_count(), 0, "Still on frame 0 (even)");
+
+        // Next step should go to cycle 340 (not skip)
+        let frame_complete = ppu.step();
+
+        assert!(!frame_complete, "Frame should not complete yet");
+        assert_eq!(ppu.scanline(), PRERENDER_SCANLINE);
+        assert_eq!(
+            ppu.cycle(),
+            340,
+            "Should advance to cycle 340 on even frame"
+        );
+        assert_eq!(ppu.frame_count(), 0, "Still on frame 0");
+
+        // One more step completes the frame normally
+        let frame_complete = ppu.step();
+        assert!(frame_complete, "Frame should complete now");
+        assert_eq!(ppu.frame_count(), 1);
+        assert_eq!(ppu.scanline(), 0);
+        assert_eq!(ppu.cycle(), 0);
+    }
+
+    #[test]
+    fn test_odd_frame_skip_only_when_rendering_enabled() {
+        let mut ppu = Ppu::new();
+
+        // Disable rendering
+        ppu.ppumask = 0x00;
+
+        // Complete frame 0
+        while ppu.frame_count() < 1 {
+            ppu.step();
+        }
+
+        assert_eq!(ppu.frame_count(), 1, "On odd frame");
+
+        // Advance to scanline 261, cycle 339
+        while ppu.scanline() < PRERENDER_SCANLINE {
+            for _ in 0..CYCLES_PER_SCANLINE {
+                ppu.step();
+            }
+        }
+
+        for _ in 0..339 {
+            ppu.step();
+        }
+
+        assert_eq!(ppu.scanline(), PRERENDER_SCANLINE);
+        assert_eq!(ppu.cycle(), 339);
+
+        // With rendering disabled, should NOT skip even on odd frame
+        let frame_complete = ppu.step();
+
+        assert!(!frame_complete, "Should not complete yet");
+        assert_eq!(ppu.cycle(), 340, "Should advance to cycle 340");
+
+        // One more step completes normally
+        let frame_complete = ppu.step();
+        assert!(frame_complete);
+        assert_eq!(ppu.frame_count(), 2);
+    }
 }
