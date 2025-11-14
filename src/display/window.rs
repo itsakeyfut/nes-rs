@@ -176,11 +176,8 @@ impl ApplicationHandler for DisplayWindow {
         // 3. Neither is moved after creation
         let window_ptr = window_ref as *const Window;
         let window_static: &'static Window = unsafe { &*window_ptr };
-        let surface_texture = SurfaceTexture::new(
-            window_size.width,
-            window_size.height,
-            window_static,
-        );
+        let surface_texture =
+            SurfaceTexture::new(window_size.width, window_size.height, window_static);
 
         let pixels = Pixels::new(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32, surface_texture)
             .expect("Failed to create pixel buffer");
@@ -277,7 +274,10 @@ mod tests {
 
     #[test]
     fn test_window_config_builder() {
-        let config = WindowConfig::new().with_scale(2).with_fps(30).with_vsync(false);
+        let config = WindowConfig::new()
+            .with_scale(2)
+            .with_fps(30)
+            .with_vsync(false);
 
         assert_eq!(config.scale, 2);
         assert_eq!(config.target_fps, 30);

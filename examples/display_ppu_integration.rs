@@ -33,7 +33,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Configure window (3x scale, 60 FPS, VSync enabled)
-    let config = WindowConfig::new().with_scale(3).with_fps(60).with_vsync(true);
+    let config = WindowConfig::new()
+        .with_scale(3)
+        .with_fps(60)
+        .with_vsync(true);
 
     println!("Press the close button or Ctrl+C to exit.");
     println!();
