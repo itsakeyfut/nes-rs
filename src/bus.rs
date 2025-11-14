@@ -480,6 +480,105 @@ impl Bus {
     pub fn get_dma_page(&self) -> u8 {
         self.dma_page
     }
+
+    // ========================================
+    // PPU Synchronization
+    // ========================================
+
+    /// Synchronize PPU with CPU cycles
+    ///
+    /// Executes the PPU for the number of cycles corresponding to CPU cycles.
+    /// The PPU runs at 3 times the speed of the CPU (3 PPU cycles per CPU cycle).
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu_cycles` - Number of CPU cycles to synchronize
+    ///
+    /// # Returns
+    ///
+    /// `true` if a frame was completed during execution, `false` otherwise
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::Bus;
+    ///
+    /// let mut bus = Bus::new();
+    ///
+    /// // After CPU executes an instruction that took 2 cycles
+    /// let frame_complete = bus.tick_ppu(2);
+    /// if frame_complete {
+    ///     // A frame is ready for display
+    /// }
+    /// ```
+    pub fn tick_ppu(&mut self, cpu_cycles: u8) -> bool {
+        let mut frame_complete = false;
+
+        // Execute 3 PPU cycles for each CPU cycle
+        let ppu_cycles = cpu_cycles as u16 * 3;
+
+        for _ in 0..ppu_cycles {
+            if self.ppu.step() {
+                frame_complete = true;
+            }
+        }
+
+        frame_complete
+    }
+
+    /// Check if PPU has a pending NMI
+    ///
+    /// The CPU should check this after each instruction to handle NMI interrupts.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the PPU has generated an NMI that needs to be handled
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::Bus;
+    ///
+    /// let mut bus = Bus::new();
+    ///
+    /// // After ticking the PPU
+    /// if bus.ppu_nmi_pending() {
+    ///     // CPU should handle NMI interrupt
+    ///     bus.clear_ppu_nmi();
+    /// }
+    /// ```
+    pub fn ppu_nmi_pending(&self) -> bool {
+        self.ppu.nmi_pending()
+    }
+
+    /// Clear the PPU NMI pending flag
+    ///
+    /// The CPU should call this after handling an NMI interrupt.
+    pub fn clear_ppu_nmi(&mut self) {
+        self.ppu.clear_nmi();
+    }
+
+    /// Get a reference to the PPU for direct access
+    ///
+    /// This is useful for accessing PPU state like frame buffer, scanline, etc.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the PPU
+    pub fn ppu(&self) -> &Ppu {
+        &self.ppu
+    }
+
+    /// Get a mutable reference to the PPU for direct access
+    ///
+    /// This is useful for operations that need to modify PPU state directly.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the PPU
+    pub fn ppu_mut(&mut self) -> &mut Ppu {
+        &mut self.ppu
+    }
 }
 
 impl Default for Bus {
