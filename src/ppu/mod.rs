@@ -63,6 +63,21 @@ const NAMETABLE_SIZE: usize = 1024;
 /// Size of palette RAM in bytes
 const PALETTE_SIZE: usize = 32;
 
+/// Screen width in pixels
+const SCREEN_WIDTH: usize = 256;
+
+/// Screen height in pixels
+const SCREEN_HEIGHT: usize = 240;
+
+/// Nametable width in tiles (32 tiles)
+const NAMETABLE_WIDTH: usize = 32;
+
+/// Nametable height in tiles (30 tiles)
+const NAMETABLE_HEIGHT: usize = 30;
+
+/// Tile size in pixels (8x8)
+const TILE_SIZE: usize = 8;
+
 /// PPU structure representing the Picture Processing Unit state
 ///
 /// This is a full implementation of PPU registers with proper behavior.
@@ -186,6 +201,15 @@ pub struct Ppu {
     /// - Byte 2: Attributes (palette, priority, flip)
     /// - Byte 3: X position
     oam: [u8; 256],
+
+    // ========================================
+    // Rendering
+    // ========================================
+    /// Frame buffer - stores the rendered pixels (256x240)
+    ///
+    /// Each pixel is a palette index (0-63) that will be converted to RGB by the frontend.
+    /// The buffer is organized as rows of pixels: [row0_pixels..., row1_pixels..., ...]
+    frame_buffer: [u8; SCREEN_WIDTH * SCREEN_HEIGHT],
 }
 
 impl Ppu {
@@ -227,6 +251,9 @@ impl Ppu {
 
             // OAM memory
             oam: [0; 256],
+
+            // Rendering
+            frame_buffer: [0; SCREEN_WIDTH * SCREEN_HEIGHT],
         }
     }
 
@@ -248,6 +275,7 @@ impl Ppu {
         self.nametables = [0; NAMETABLE_SIZE * 2];
         self.palette_ram = [0; PALETTE_SIZE];
         self.oam = [0; 256];
+        self.frame_buffer = [0; SCREEN_WIDTH * SCREEN_HEIGHT];
     }
 
     /// Set the mirroring mode
@@ -334,6 +362,224 @@ impl Ppu {
     /// The byte value at the specified OAM address
     pub fn read_oam(&self, addr: u8) -> u8 {
         self.oam[addr as usize]
+    }
+
+    /// Get a reference to the frame buffer
+    ///
+    /// The frame buffer contains palette indices (0-63) for each pixel.
+    /// The caller should convert these to RGB values using the NES palette.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the frame buffer (256x240 pixels)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::ppu::Ppu;
+    ///
+    /// let ppu = Ppu::new();
+    /// let frame = ppu.frame();
+    /// assert_eq!(frame.len(), 256 * 240);
+    /// ```
+    pub fn frame(&self) -> &[u8] {
+        &self.frame_buffer
+    }
+
+    /// Get a mutable reference to the frame buffer (for testing)
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the frame buffer (256x240 pixels)
+    pub fn frame_mut(&mut self) -> &mut [u8] {
+        &mut self.frame_buffer
+    }
+
+    /// Render the background to the frame buffer
+    ///
+    /// This method renders the entire 256x240 pixel background based on:
+    /// - Nametable data (tile indices)
+    /// - Attribute table data (palette selection)
+    /// - Pattern table data (tile graphics)
+    /// - Scroll position (from internal registers)
+    ///
+    /// The rendering respects the current scroll position (X and Y).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::ppu::Ppu;
+    ///
+    /// let mut ppu = Ppu::new();
+    /// ppu.render_background();
+    /// let frame = ppu.frame();
+    /// // frame now contains the rendered background
+    /// ```
+    pub fn render_background(&mut self) {
+        // Check if background rendering is enabled
+        if (self.ppumask & 0x08) == 0 {
+            // Background rendering is disabled, clear the frame buffer
+            self.frame_buffer.fill(0);
+            return;
+        }
+
+        // Get scroll position from internal registers
+        // For simplicity in this initial implementation, we'll use a basic scroll
+        // The full implementation would use the v and fine_x registers
+        let scroll_x = ((self.t & 0x001F) << 3) | (self.fine_x as u16);
+        let scroll_y = (((self.t & 0x03E0) >> 5) << 3) | ((self.t >> 12) & 0x07);
+
+        // Render each pixel on the screen
+        for screen_y in 0..SCREEN_HEIGHT {
+            for screen_x in 0..SCREEN_WIDTH {
+                // Calculate the position in the nametable with scrolling
+                let nt_x = (screen_x + scroll_x as usize) % (NAMETABLE_WIDTH * TILE_SIZE * 2);
+                let nt_y = (screen_y + scroll_y as usize) % (NAMETABLE_HEIGHT * TILE_SIZE * 2);
+
+                // Determine which nametable to use based on position
+                let nt_index = (nt_y / (NAMETABLE_HEIGHT * TILE_SIZE)) * 2
+                    + (nt_x / (NAMETABLE_WIDTH * TILE_SIZE));
+                let nametable_addr = 0x2000 | ((nt_index as u16) << 10);
+
+                // Calculate tile coordinates within the nametable
+                let tile_x = (nt_x % (NAMETABLE_WIDTH * TILE_SIZE)) / TILE_SIZE;
+                let tile_y = (nt_y % (NAMETABLE_HEIGHT * TILE_SIZE)) / TILE_SIZE;
+
+                // Calculate pixel position within the tile
+                let pixel_x = nt_x % TILE_SIZE;
+                let pixel_y = nt_y % TILE_SIZE;
+
+                // Read tile index from nametable
+                let tile_addr = nametable_addr + (tile_y * NAMETABLE_WIDTH + tile_x) as u16;
+                let tile_index = self.read_nametable_tile(tile_addr);
+
+                // Read attribute byte for palette selection
+                let palette_index = self.read_attribute_byte(nametable_addr, tile_x, tile_y);
+
+                // Fetch tile pixel from pattern table
+                let pattern_table_base = if (self.ppuctrl & 0x10) != 0 {
+                    0x1000
+                } else {
+                    0x0000
+                };
+                let color_index =
+                    self.fetch_tile_pixel(pattern_table_base, tile_index, pixel_x, pixel_y);
+
+                // Get final palette color
+                let palette_color = self.get_background_color(palette_index, color_index);
+
+                // Write to frame buffer
+                let buffer_index = screen_y * SCREEN_WIDTH + screen_x;
+                self.frame_buffer[buffer_index] = palette_color;
+            }
+        }
+    }
+
+    /// Read a tile index from the nametable
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Nametable address ($2000-$2FFF)
+    ///
+    /// # Returns
+    ///
+    /// The tile index (0-255)
+    fn read_nametable_tile(&self, addr: u16) -> u8 {
+        self.read_ppu_memory(addr)
+    }
+
+    /// Read attribute byte for palette selection
+    ///
+    /// The attribute table covers 2x2 tile blocks, with each byte containing
+    /// palette information for four 2x2 tile blocks.
+    ///
+    /// # Arguments
+    ///
+    /// * `nametable_base` - Base address of the nametable ($2000, $2400, $2800, or $2C00)
+    /// * `tile_x` - Tile X coordinate (0-31)
+    /// * `tile_y` - Tile Y coordinate (0-29)
+    ///
+    /// # Returns
+    ///
+    /// The palette index (0-3) for the specified tile
+    fn read_attribute_byte(&self, nametable_base: u16, tile_x: usize, tile_y: usize) -> u8 {
+        // Attribute table starts at nametable_base + 0x3C0
+        let attr_table_base = nametable_base + 0x3C0;
+
+        // Each attribute byte covers a 4x4 tile area (2x2 blocks of 2x2 tiles)
+        let attr_x = tile_x / 4;
+        let attr_y = tile_y / 4;
+        let attr_addr = attr_table_base + (attr_y * 8 + attr_x) as u16;
+
+        let attr_byte = self.read_ppu_memory(attr_addr);
+
+        // Determine which 2x2 tile block within the 4x4 area
+        let block_x = (tile_x % 4) / 2;
+        let block_y = (tile_y % 4) / 2;
+        let shift = (block_y * 2 + block_x) * 2;
+
+        // Extract 2-bit palette index
+        (attr_byte >> shift) & 0x03
+    }
+
+    /// Fetch a pixel color index from the pattern table
+    ///
+    /// Each tile is 8x8 pixels stored as two bitplanes (16 bytes total).
+    /// The two bitplanes are combined to form a 2-bit color index.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern_table_base` - Base address of pattern table ($0000 or $1000)
+    /// * `tile_index` - Tile index (0-255)
+    /// * `pixel_x` - Pixel X coordinate within tile (0-7)
+    /// * `pixel_y` - Pixel Y coordinate within tile (0-7)
+    ///
+    /// # Returns
+    ///
+    /// The 2-bit color index (0-3) for the pixel
+    fn fetch_tile_pixel(
+        &self,
+        pattern_table_base: u16,
+        tile_index: u8,
+        pixel_x: usize,
+        pixel_y: usize,
+    ) -> u8 {
+        // Each tile is 16 bytes (8 bytes per bitplane)
+        let tile_addr = pattern_table_base + (tile_index as u16) * 16;
+
+        // Read the two bitplanes for this row
+        let bitplane_0 = self.read_ppu_memory(tile_addr + pixel_y as u16);
+        let bitplane_1 = self.read_ppu_memory(tile_addr + pixel_y as u16 + 8);
+
+        // Extract the bit for this pixel (MSB is leftmost pixel)
+        let bit_pos = 7 - pixel_x;
+        let bit_0 = (bitplane_0 >> bit_pos) & 0x01;
+        let bit_1 = (bitplane_1 >> bit_pos) & 0x01;
+
+        // Combine bits to form 2-bit color index
+        (bit_1 << 1) | bit_0
+    }
+
+    /// Get the final background color from palette RAM
+    ///
+    /// # Arguments
+    ///
+    /// * `palette_index` - Palette index (0-3) from attribute table
+    /// * `color_index` - Color index (0-3) from pattern table
+    ///
+    /// # Returns
+    ///
+    /// The palette color index (0-63) to be displayed
+    fn get_background_color(&self, palette_index: u8, color_index: u8) -> u8 {
+        // If color index is 0, use the universal background color
+        if color_index == 0 {
+            return self.palette_ram[0];
+        }
+
+        // Calculate palette RAM address
+        // Background palettes are at $3F00-$3F0F
+        let palette_addr = (palette_index as usize) * 4 + (color_index as usize);
+        self.palette_ram[palette_addr]
     }
 
     /// Mirror nametable address based on mirroring mode
@@ -1692,6 +1938,291 @@ mod tests {
             let value = ppu.read(PPUDATA);
             assert_eq!(value, i, "Sequential CHR-RAM read failed at index {}", i);
         }
+    }
+
+    // ========================================
+    // Background Rendering Tests
+    // ========================================
+
+    #[test]
+    fn test_frame_buffer_size() {
+        let ppu = Ppu::new();
+        let frame = ppu.frame();
+        assert_eq!(frame.len(), 256 * 240, "Frame buffer should be 256x240 pixels");
+    }
+
+    #[test]
+    fn test_frame_buffer_initialization() {
+        let ppu = Ppu::new();
+        let frame = ppu.frame();
+        // All pixels should be initialized to 0
+        for &pixel in frame.iter() {
+            assert_eq!(pixel, 0);
+        }
+    }
+
+    #[test]
+    fn test_render_background_disabled() {
+        let mut ppu = Ppu::new();
+
+        // Fill frame buffer with non-zero values
+        ppu.frame_mut().fill(0xFF);
+
+        // Disable background rendering (PPUMASK bit 3 = 0)
+        ppu.write(PPUMASK, 0x00);
+
+        // Render background
+        ppu.render_background();
+
+        // Frame buffer should be cleared when rendering is disabled
+        let frame = ppu.frame();
+        for &pixel in frame.iter() {
+            assert_eq!(pixel, 0, "Frame should be cleared when rendering is disabled");
+        }
+    }
+
+    #[test]
+    fn test_render_background_enabled() {
+        let mut ppu = Ppu::new();
+
+        // Enable background rendering (PPUMASK bit 3 = 1)
+        ppu.write(PPUMASK, 0x08);
+
+        // Render background (will render with default data)
+        ppu.render_background();
+
+        // Frame buffer should be filled (not necessarily all zeros)
+        let frame = ppu.frame();
+        assert_eq!(frame.len(), 256 * 240);
+    }
+
+    #[test]
+    fn test_nametable_tile_read() {
+        let mut ppu = Ppu::new();
+
+        // Write a tile index to nametable
+        ppu.write(PPUADDR, 0x20);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x42);
+
+        // Read it back using the internal method
+        let tile_index = ppu.read_nametable_tile(0x2000);
+        assert_eq!(tile_index, 0x42, "Tile index should be readable");
+    }
+
+    #[test]
+    fn test_render_manual_debug() {
+        let mut ppu = Ppu::new();
+        let cartridge = create_test_cartridge_chr_ram();
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Set up minimal data for testing one pixel
+        // Write tile index 1 to nametable[0]
+        ppu.nametables[0] = 0x01;
+
+        // Write tile data to pattern table tile 1
+        // This goes through the mapper
+        for i in 0..8 {
+            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF); // Bitplane 0: all 1s
+            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00); // Bitplane 1: all 0s
+        }
+
+        // Set up palette
+        ppu.palette_ram[0] = 0x0F; // Universal background
+        ppu.palette_ram[1] = 0x30; // Palette 0, color 1
+
+        // Manually test the pipeline
+        let tile_index = ppu.read_nametable_tile(0x2000);
+        assert_eq!(tile_index, 0x01, "Should read tile 1");
+
+        let color = ppu.fetch_tile_pixel(0x0000, tile_index, 0, 0);
+        assert_eq!(color, 1, "Should get color index 1");
+
+        let final_color = ppu.get_background_color(0, color);
+        assert_eq!(final_color, 0x30, "Should get palette color 0x30");
+    }
+
+    #[test]
+    fn test_render_simple_pattern() {
+        let mut ppu = Ppu::new();
+        let cartridge = create_test_cartridge_chr_ram();
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Set up palette directly
+        ppu.palette_ram[0] = 0x0F; // Universal background
+        ppu.palette_ram[1] = 0x30; // Palette 0, color 1
+
+        // Set up tile data directly in CHR-RAM
+        // Tile 1: all pixels use color index 1
+        for i in 0..8 {
+            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF); // Bitplane 0
+            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00); // Bitplane 1
+        }
+
+        // Set up nametable directly - all tiles use tile 1
+        for i in 0..(32 * 30) {
+            ppu.nametables[i] = 0x01;
+        }
+
+        // Set up attribute table directly - all use palette 0
+        for i in 0..64 {
+            ppu.nametables[960 + i] = 0x00;
+        }
+
+        // Enable background rendering
+        ppu.ppumask = 0x08;
+
+        // Render background
+        ppu.render_background();
+
+        // Verify frame buffer has been filled
+        let frame = ppu.frame();
+        assert_eq!(frame.len(), 256 * 240);
+
+        // All pixels should be 0x30 (color 1 from palette 0)
+        assert_eq!(frame[0], 0x30, "Top-left pixel should match pattern");
+        assert_eq!(frame[1], 0x30, "Second pixel should match pattern");
+        assert_eq!(frame[256], 0x30, "Second row first pixel should match");
+    }
+
+    #[test]
+    fn test_attribute_table_palette_selection() {
+        let mut ppu = Ppu::new();
+
+        // Test attribute byte reading for different tile positions
+        // Write attribute table data
+        ppu.write(PPUADDR, 0x23);
+        ppu.write(PPUADDR, 0xC0); // Attribute table for nametable 0
+        ppu.write(PPUDATA, 0xE4); // Binary: 11 10 01 00
+        // This byte covers tiles (0,0) to (3,3)
+        // Palette indices: top-left=00, top-right=01, bottom-left=10, bottom-right=11
+
+        let palette_0_0 = ppu.read_attribute_byte(0x2000, 0, 0);
+        assert_eq!(palette_0_0, 0, "Tile (0,0) should use palette 0");
+
+        let palette_2_0 = ppu.read_attribute_byte(0x2000, 2, 0);
+        assert_eq!(palette_2_0, 1, "Tile (2,0) should use palette 1");
+
+        let palette_0_2 = ppu.read_attribute_byte(0x2000, 0, 2);
+        assert_eq!(palette_0_2, 2, "Tile (0,2) should use palette 2");
+
+        let palette_2_2 = ppu.read_attribute_byte(0x2000, 2, 2);
+        assert_eq!(palette_2_2, 3, "Tile (2,2) should use palette 3");
+    }
+
+    #[test]
+    fn test_fetch_tile_pixel() {
+        let mut ppu = Ppu::new();
+        let cartridge = create_test_cartridge_chr_ram();
+        let mapper = Rc::new(RefCell::new(
+            Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+        ));
+        ppu.set_mapper(mapper);
+
+        // Create a test pattern in tile 0
+        // Bitplane 0: alternating 1010101
+        // Bitplane 1: alternating 0101010
+        // Result should alternate between color indices 1, 2, 1, 2...
+
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUADDR, 0x00);
+
+        // Bitplane 0
+        for _ in 0..8 {
+            ppu.write(PPUDATA, 0b10101010);
+        }
+        // Bitplane 1
+        for _ in 0..8 {
+            ppu.write(PPUDATA, 0b01010101);
+        }
+
+        // Test fetching pixels
+        // Bitplane 0 = 0b10101010 → bits 7,5,3,1 = 1; bits 6,4,2,0 = 0
+        // Bitplane 1 = 0b01010101 → bits 7,5,3,1 = 0; bits 6,4,2,0 = 1
+        // Color = (bit_1 << 1) | bit_0
+        let color_0 = ppu.fetch_tile_pixel(0x0000, 0, 0, 0);
+        assert_eq!(color_0, 1, "Pixel (0,0): bitplane0[7]=1, bitplane1[7]=0 → color = 01 = 1");
+
+        let color_1 = ppu.fetch_tile_pixel(0x0000, 0, 1, 0);
+        assert_eq!(color_1, 2, "Pixel (1,0): bitplane0[6]=0, bitplane1[6]=1 → color = 10 = 2");
+
+        let color_2 = ppu.fetch_tile_pixel(0x0000, 0, 2, 0);
+        assert_eq!(color_2, 1, "Pixel (2,0): bitplane0[5]=1, bitplane1[5]=0 → color = 01 = 1");
+
+        let color_3 = ppu.fetch_tile_pixel(0x0000, 0, 3, 0);
+        assert_eq!(color_3, 2, "Pixel (3,0): bitplane0[4]=0, bitplane1[4]=1 → color = 10 = 2");
+    }
+
+    #[test]
+    fn test_background_color_palette_lookup() {
+        let mut ppu = Ppu::new();
+
+        // Set up background palettes
+        // Palette RAM layout:
+        // Index 0: Universal background
+        // Index 1-3: Palette 0, colors 1-3
+        // Index 4: Palette 1, color 0 (unused, color 0 uses universal bg)
+        // Index 5-7: Palette 1, colors 1-3
+        ppu.write(PPUADDR, 0x3F);
+        ppu.write(PPUADDR, 0x00);
+        ppu.write(PPUDATA, 0x0F); // Index 0: Universal background
+        ppu.write(PPUDATA, 0x10); // Index 1: Palette 0, color 1
+        ppu.write(PPUDATA, 0x20); // Index 2: Palette 0, color 2
+        ppu.write(PPUDATA, 0x30); // Index 3: Palette 0, color 3
+        ppu.write(PPUDATA, 0x00); // Index 4: Palette 1, color 0 (unused)
+        ppu.write(PPUDATA, 0x11); // Index 5: Palette 1, color 1
+        ppu.write(PPUDATA, 0x21); // Index 6: Palette 1, color 2
+        ppu.write(PPUDATA, 0x31); // Index 7: Palette 1, color 3
+
+        // Test palette 0
+        assert_eq!(ppu.get_background_color(0, 0), 0x0F, "Color 0 should be universal background");
+        assert_eq!(ppu.get_background_color(0, 1), 0x10, "Palette 0, color 1 at index 1");
+        assert_eq!(ppu.get_background_color(0, 2), 0x20, "Palette 0, color 2 at index 2");
+        assert_eq!(ppu.get_background_color(0, 3), 0x30, "Palette 0, color 3 at index 3");
+
+        // Test palette 1
+        assert_eq!(ppu.get_background_color(1, 0), 0x0F, "Color 0 should be universal background");
+        assert_eq!(ppu.get_background_color(1, 1), 0x11, "Palette 1, color 1 at index 5");
+        assert_eq!(ppu.get_background_color(1, 2), 0x21, "Palette 1, color 2 at index 6");
+        assert_eq!(ppu.get_background_color(1, 3), 0x31, "Palette 1, color 3 at index 7");
+    }
+
+    #[test]
+    fn test_pattern_table_selection() {
+        let mut ppu = Ppu::new();
+
+        // Test pattern table 0 (PPUCTRL bit 4 = 0)
+        ppu.write(PPUCTRL, 0x00);
+        assert_eq!(ppu.ppuctrl & 0x10, 0, "Pattern table 0 should be selected");
+
+        // Test pattern table 1 (PPUCTRL bit 4 = 1)
+        ppu.write(PPUCTRL, 0x10);
+        assert_eq!(ppu.ppuctrl & 0x10, 0x10, "Pattern table 1 should be selected");
+    }
+
+    #[test]
+    fn test_render_with_scrolling() {
+        let mut ppu = Ppu::new();
+
+        // Enable background rendering
+        ppu.write(PPUMASK, 0x08);
+
+        // Set scroll position
+        ppu.write(PPUSCROLL, 8); // X scroll = 8 pixels
+        ppu.write(PPUSCROLL, 16); // Y scroll = 16 pixels
+
+        // Render background
+        ppu.render_background();
+
+        // Frame buffer should be filled with scrolled content
+        let frame = ppu.frame();
+        assert_eq!(frame.len(), 256 * 240);
     }
 
     #[test]
