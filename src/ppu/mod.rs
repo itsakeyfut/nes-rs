@@ -423,18 +423,25 @@ impl Ppu {
             return;
         }
 
-        // Get scroll position from internal registers
-        // For simplicity in this initial implementation, we'll use a basic scroll
-        // The full implementation would use the v and fine_x registers
-        let scroll_x = ((self.t & 0x001F) << 3) | (self.fine_x as u16);
-        let scroll_y = (((self.t & 0x03E0) >> 5) << 3) | ((self.t >> 12) & 0x07);
+        // Get scroll position from internal registers (coarse/fine scroll + base nametable)
+        let coarse_x = (self.t & 0x001F) as usize;
+        let coarse_y = ((self.t & 0x03E0) >> 5) as usize;
+        let fine_x = self.fine_x as usize;
+        let fine_y = ((self.t >> 12) & 0x07) as usize;
+
+        let nametable_select = ((self.t >> 10) & 0x03) as usize;
+        let base_nt_x = nametable_select & 0x01;
+        let base_nt_y = (nametable_select >> 1) & 0x01;
+
+        let scroll_x = base_nt_x * NAMETABLE_WIDTH * TILE_SIZE + coarse_x * TILE_SIZE + fine_x;
+        let scroll_y = base_nt_y * NAMETABLE_HEIGHT * TILE_SIZE + coarse_y * TILE_SIZE + fine_y;
 
         // Render each pixel on the screen
         for screen_y in 0..SCREEN_HEIGHT {
             for screen_x in 0..SCREEN_WIDTH {
                 // Calculate the position in the nametable with scrolling
-                let nt_x = (screen_x + scroll_x as usize) % (NAMETABLE_WIDTH * TILE_SIZE * 2);
-                let nt_y = (screen_y + scroll_y as usize) % (NAMETABLE_HEIGHT * TILE_SIZE * 2);
+                let nt_x = (screen_x + scroll_x) % (NAMETABLE_WIDTH * TILE_SIZE * 2);
+                let nt_y = (screen_y + scroll_y) % (NAMETABLE_HEIGHT * TILE_SIZE * 2);
 
                 // Determine which nametable to use based on position
                 let nt_index = (nt_y / (NAMETABLE_HEIGHT * TILE_SIZE)) * 2
