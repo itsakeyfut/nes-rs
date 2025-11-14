@@ -25,8 +25,14 @@
 // | $2006   | PPUADDR    | Write×2| PPU Address Register           |
 // | $2007   | PPUDATA    | R/W    | PPU Data Port                  |
 
+mod constants;
+mod memory;
+mod registers;
+mod rendering;
+
 use crate::bus::MemoryMappedDevice;
 use crate::cartridge::{Mapper, Mirroring};
+use constants::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -51,33 +57,6 @@ mod test_constants {
     pub const PPUDATA: u16 = 0x2007;
 }
 
-/// PPU register address mask for mirroring
-///
-/// PPU registers are 8 bytes ($2000-$2007) but mirrored throughout $2000-$3FFF.
-/// Use this mask to get the actual register address: `addr & 0x2007` or `addr & 0x0007`
-const PPU_REGISTER_MASK: u16 = 0x0007;
-
-/// Size of nametable in bytes (1KB)
-const NAMETABLE_SIZE: usize = 1024;
-
-/// Size of palette RAM in bytes
-const PALETTE_SIZE: usize = 32;
-
-/// Screen width in pixels
-const SCREEN_WIDTH: usize = 256;
-
-/// Screen height in pixels
-const SCREEN_HEIGHT: usize = 240;
-
-/// Nametable width in tiles (32 tiles)
-const NAMETABLE_WIDTH: usize = 32;
-
-/// Nametable height in tiles (30 tiles)
-const NAMETABLE_HEIGHT: usize = 30;
-
-/// Tile size in pixels (8x8)
-const TILE_SIZE: usize = 8;
-
 /// PPU structure representing the Picture Processing Unit state
 ///
 /// This is a full implementation of PPU registers with proper behavior.
@@ -96,7 +75,7 @@ pub struct Ppu {
     /// - 3: Sprite pattern table address (0: $0000, 1: $1000)
     /// - 2: VRAM address increment (0: +1, 1: +32)
     /// - 1-0: Base nametable address (0: $2000, 1: $2400, 2: $2800, 3: $2C00)
-    ppuctrl: u8,
+    pub(crate) ppuctrl: u8,
 
     /// $2001: PPUMASK - Control register 2
     ///
@@ -109,7 +88,7 @@ pub struct Ppu {
     /// - 2: Show sprites in leftmost 8 pixels
     /// - 1: Show background in leftmost 8 pixels
     /// - 0: Grayscale (0: color, 1: grayscale)
-    ppumask: u8,
+    pub(crate) ppumask: u8,
 
     /// $2002: PPUSTATUS - Status register
     ///
@@ -118,10 +97,10 @@ pub struct Ppu {
     /// - 6: Sprite 0 hit
     /// - 5: Sprite overflow
     /// - 4-0: Open bus (returns stale PPU bus value)
-    ppustatus: u8,
+    pub(crate) ppustatus: u8,
 
     /// $2003: OAMADDR - OAM address
-    oam_addr: u8,
+    pub(crate) oam_addr: u8,
 
     // ========================================
     // Internal Scroll Registers
@@ -130,18 +109,18 @@ pub struct Ppu {
     ///
     /// This is the actual address used when reading/writing PPUDATA.
     /// Also serves as the current scroll position during rendering.
-    v: u16,
+    pub(crate) v: u16,
 
     /// t: Temporary VRAM address (15 bits)
     ///
     /// Also serves as temporary storage during address/scroll writes.
     /// Can be thought of as the "top-left" onscreen address.
-    t: u16,
+    pub(crate) t: u16,
 
     /// x: Fine X scroll (3 bits)
     ///
     /// The fine X offset within the current tile (0-7 pixels).
-    fine_x: u8,
+    pub(crate) fine_x: u8,
 
     /// w: Write toggle (1 bit)
     ///
@@ -151,13 +130,13 @@ pub struct Ppu {
     /// - true (1): Second write
     ///
     /// Reading PPUSTATUS resets this to false.
-    write_latch: bool,
+    pub(crate) write_latch: bool,
 
     /// Read buffer for PPUDATA
     ///
     /// Reads from PPUDATA are buffered (delayed by one read) for addresses $0000-$3EFF.
     /// Palette reads ($3F00-$3FFF) are not buffered.
-    read_buffer: u8,
+    pub(crate) read_buffer: u8,
 
     // ========================================
     // PPU Memory (VRAM)
@@ -169,7 +148,7 @@ pub struct Ppu {
     /// - Vertical mirroring: $2000=$2800, $2400=$2C00
     /// - Four-screen: Requires external cartridge RAM (not implemented here)
     /// - Single-screen: All point to same nametable
-    nametables: [u8; NAMETABLE_SIZE * 2],
+    pub(crate) nametables: [u8; NAMETABLE_SIZE * 2],
 
     /// Palette RAM: 32 bytes
     ///
@@ -178,17 +157,17 @@ pub struct Ppu {
     /// - $3F10-$3F1F: Sprite palettes (4 palettes × 4 colors)
     ///
     /// Note: $3F10, $3F14, $3F18, $3F1C are mirrors of $3F00, $3F04, $3F08, $3F0C
-    palette_ram: [u8; PALETTE_SIZE],
+    pub(crate) palette_ram: [u8; PALETTE_SIZE],
 
     /// Mirroring mode (from cartridge)
-    mirroring: Mirroring,
+    pub(crate) mirroring: Mirroring,
 
     /// Mapper for CHR-ROM/RAM access (pattern tables)
     ///
     /// Pattern tables ($0000-$1FFF) are stored in cartridge CHR-ROM or CHR-RAM.
     /// The mapper provides the interface to read/write this memory.
     /// None if no cartridge is loaded.
-    mapper: Option<Rc<RefCell<Box<dyn Mapper>>>>,
+    pub(crate) mapper: Option<Rc<RefCell<Box<dyn Mapper>>>>,
 
     // ========================================
     // OAM Memory (Object Attribute Memory)
@@ -200,7 +179,7 @@ pub struct Ppu {
     /// - Byte 1: Tile index
     /// - Byte 2: Attributes (palette, priority, flip)
     /// - Byte 3: X position
-    oam: [u8; 256],
+    pub(crate) oam: [u8; 256],
 
     // ========================================
     // Rendering
@@ -209,7 +188,7 @@ pub struct Ppu {
     ///
     /// Each pixel is a palette index (0-63) that will be converted to RGB by the frontend.
     /// The buffer is organized as rows of pixels: [row0_pixels..., row1_pixels..., ...]
-    frame_buffer: [u8; SCREEN_WIDTH * SCREEN_HEIGHT],
+    pub(crate) frame_buffer: [u8; SCREEN_WIDTH * SCREEN_HEIGHT],
 }
 
 impl Ppu {
@@ -393,570 +372,6 @@ impl Ppu {
     /// A mutable reference to the frame buffer (256x240 pixels)
     pub fn frame_mut(&mut self) -> &mut [u8] {
         &mut self.frame_buffer
-    }
-
-    /// Render the background to the frame buffer
-    ///
-    /// This method renders the entire 256x240 pixel background based on:
-    /// - Nametable data (tile indices)
-    /// - Attribute table data (palette selection)
-    /// - Pattern table data (tile graphics)
-    /// - Scroll position (from internal registers)
-    ///
-    /// The rendering respects the current scroll position (X and Y).
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use nes_rs::ppu::Ppu;
-    ///
-    /// let mut ppu = Ppu::new();
-    /// ppu.render_background();
-    /// let frame = ppu.frame();
-    /// // frame now contains the rendered background
-    /// ```
-    pub fn render_background(&mut self) {
-        // Check if background rendering is enabled
-        if (self.ppumask & 0x08) == 0 {
-            // Background rendering is disabled, clear the frame buffer
-            self.frame_buffer.fill(0);
-            return;
-        }
-
-        // Get scroll position from internal registers (coarse/fine scroll + base nametable)
-        let coarse_x = (self.t & 0x001F) as usize;
-        let coarse_y = ((self.t & 0x03E0) >> 5) as usize;
-        let fine_x = self.fine_x as usize;
-        let fine_y = ((self.t >> 12) & 0x07) as usize;
-
-        let nametable_select = ((self.t >> 10) & 0x03) as usize;
-        let base_nt_x = nametable_select & 0x01;
-        let base_nt_y = (nametable_select >> 1) & 0x01;
-
-        let scroll_x = base_nt_x * NAMETABLE_WIDTH * TILE_SIZE + coarse_x * TILE_SIZE + fine_x;
-        let scroll_y = base_nt_y * NAMETABLE_HEIGHT * TILE_SIZE + coarse_y * TILE_SIZE + fine_y;
-
-        // Render each pixel on the screen
-        for screen_y in 0..SCREEN_HEIGHT {
-            for screen_x in 0..SCREEN_WIDTH {
-                // Calculate the position in the nametable with scrolling
-                let nt_x = (screen_x + scroll_x) % (NAMETABLE_WIDTH * TILE_SIZE * 2);
-                let nt_y = (screen_y + scroll_y) % (NAMETABLE_HEIGHT * TILE_SIZE * 2);
-
-                // Determine which nametable to use based on position
-                let nt_index = (nt_y / (NAMETABLE_HEIGHT * TILE_SIZE)) * 2
-                    + (nt_x / (NAMETABLE_WIDTH * TILE_SIZE));
-                let nametable_addr = 0x2000 | ((nt_index as u16) << 10);
-
-                // Calculate tile coordinates within the nametable
-                let tile_x = (nt_x % (NAMETABLE_WIDTH * TILE_SIZE)) / TILE_SIZE;
-                let tile_y = (nt_y % (NAMETABLE_HEIGHT * TILE_SIZE)) / TILE_SIZE;
-
-                // Calculate pixel position within the tile
-                let pixel_x = nt_x % TILE_SIZE;
-                let pixel_y = nt_y % TILE_SIZE;
-
-                // Read tile index from nametable
-                let tile_addr = nametable_addr + (tile_y * NAMETABLE_WIDTH + tile_x) as u16;
-                let tile_index = self.read_nametable_tile(tile_addr);
-
-                // Read attribute byte for palette selection
-                let palette_index = self.read_attribute_byte(nametable_addr, tile_x, tile_y);
-
-                // Fetch tile pixel from pattern table
-                let pattern_table_base = if (self.ppuctrl & 0x10) != 0 {
-                    0x1000
-                } else {
-                    0x0000
-                };
-                let color_index =
-                    self.fetch_tile_pixel(pattern_table_base, tile_index, pixel_x, pixel_y);
-
-                // Get final palette color
-                let palette_color = self.get_background_color(palette_index, color_index);
-
-                // Write to frame buffer
-                let buffer_index = screen_y * SCREEN_WIDTH + screen_x;
-                self.frame_buffer[buffer_index] = palette_color;
-            }
-        }
-    }
-
-    /// Read a tile index from the nametable
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - Nametable address ($2000-$2FFF)
-    ///
-    /// # Returns
-    ///
-    /// The tile index (0-255)
-    fn read_nametable_tile(&self, addr: u16) -> u8 {
-        self.read_ppu_memory(addr)
-    }
-
-    /// Read attribute byte for palette selection
-    ///
-    /// The attribute table covers 2x2 tile blocks, with each byte containing
-    /// palette information for four 2x2 tile blocks.
-    ///
-    /// # Arguments
-    ///
-    /// * `nametable_base` - Base address of the nametable ($2000, $2400, $2800, or $2C00)
-    /// * `tile_x` - Tile X coordinate (0-31)
-    /// * `tile_y` - Tile Y coordinate (0-29)
-    ///
-    /// # Returns
-    ///
-    /// The palette index (0-3) for the specified tile
-    fn read_attribute_byte(&self, nametable_base: u16, tile_x: usize, tile_y: usize) -> u8 {
-        // Attribute table starts at nametable_base + 0x3C0
-        let attr_table_base = nametable_base + 0x3C0;
-
-        // Each attribute byte covers a 4x4 tile area (2x2 blocks of 2x2 tiles)
-        let attr_x = tile_x / 4;
-        let attr_y = tile_y / 4;
-        let attr_addr = attr_table_base + (attr_y * 8 + attr_x) as u16;
-
-        let attr_byte = self.read_ppu_memory(attr_addr);
-
-        // Determine which 2x2 tile block within the 4x4 area
-        let block_x = (tile_x % 4) / 2;
-        let block_y = (tile_y % 4) / 2;
-        let shift = (block_y * 2 + block_x) * 2;
-
-        // Extract 2-bit palette index
-        (attr_byte >> shift) & 0x03
-    }
-
-    /// Fetch a pixel color index from the pattern table
-    ///
-    /// Each tile is 8x8 pixels stored as two bitplanes (16 bytes total).
-    /// The two bitplanes are combined to form a 2-bit color index.
-    ///
-    /// # Arguments
-    ///
-    /// * `pattern_table_base` - Base address of pattern table ($0000 or $1000)
-    /// * `tile_index` - Tile index (0-255)
-    /// * `pixel_x` - Pixel X coordinate within tile (0-7)
-    /// * `pixel_y` - Pixel Y coordinate within tile (0-7)
-    ///
-    /// # Returns
-    ///
-    /// The 2-bit color index (0-3) for the pixel
-    fn fetch_tile_pixel(
-        &self,
-        pattern_table_base: u16,
-        tile_index: u8,
-        pixel_x: usize,
-        pixel_y: usize,
-    ) -> u8 {
-        // Each tile is 16 bytes (8 bytes per bitplane)
-        let tile_addr = pattern_table_base + (tile_index as u16) * 16;
-
-        // Read the two bitplanes for this row
-        let bitplane_0 = self.read_ppu_memory(tile_addr + pixel_y as u16);
-        let bitplane_1 = self.read_ppu_memory(tile_addr + pixel_y as u16 + 8);
-
-        // Extract the bit for this pixel (MSB is leftmost pixel)
-        let bit_pos = 7 - pixel_x;
-        let bit_0 = (bitplane_0 >> bit_pos) & 0x01;
-        let bit_1 = (bitplane_1 >> bit_pos) & 0x01;
-
-        // Combine bits to form 2-bit color index
-        (bit_1 << 1) | bit_0
-    }
-
-    /// Get the final background color from palette RAM
-    ///
-    /// # Arguments
-    ///
-    /// * `palette_index` - Palette index (0-3) from attribute table
-    /// * `color_index` - Color index (0-3) from pattern table
-    ///
-    /// # Returns
-    ///
-    /// The palette color index (0-63) to be displayed
-    fn get_background_color(&self, palette_index: u8, color_index: u8) -> u8 {
-        // If color index is 0, use the universal background color
-        if color_index == 0 {
-            return self.palette_ram[0];
-        }
-
-        // Calculate palette RAM address
-        // Background palettes are at $3F00-$3F0F
-        let palette_addr = (palette_index as usize) * 4 + (color_index as usize);
-        self.palette_ram[palette_addr]
-    }
-
-    /// Mirror nametable address based on mirroring mode
-    ///
-    /// The PPU has 2KB of internal VRAM for nametables, but the address space
-    /// allows for 4 nametables ($2000-$2FFF). This function maps a nametable
-    /// address to the appropriate physical memory location based on the mirroring mode.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - Nametable address ($2000-$2FFF)
-    ///
-    /// # Returns
-    ///
-    /// Physical VRAM address (0-2047)
-    fn mirror_nametable_addr(&self, addr: u16) -> usize {
-        // Normalize address to 0-0xFFF range (remove $2000 base)
-        let addr = (addr & 0x0FFF) as usize;
-
-        // Determine which nametable (0-3)
-        let table = addr / NAMETABLE_SIZE;
-        let offset = addr % NAMETABLE_SIZE;
-
-        let mirrored_table = match self.mirroring {
-            Mirroring::Horizontal => {
-                // Horizontal: 0->0, 1->0, 2->1, 3->1
-                // $2000=$2400, $2800=$2C00
-                match table {
-                    0 | 1 => 0,
-                    2 | 3 => 1,
-                    _ => unreachable!(),
-                }
-            }
-            Mirroring::Vertical => {
-                // Vertical: 0->0, 1->1, 2->0, 3->1
-                // $2000=$2800, $2400=$2C00
-                match table {
-                    0 | 2 => 0,
-                    1 | 3 => 1,
-                    _ => unreachable!(),
-                }
-            }
-            Mirroring::SingleScreen => {
-                // All nametables point to the same physical table
-                0
-            }
-            Mirroring::FourScreen => {
-                // Four-screen would require 4KB of VRAM
-                // For now, treat as horizontal mirroring
-                // TODO: Implement four-screen VRAM when cartridge support is added
-                match table {
-                    0 | 1 => 0,
-                    2 | 3 => 1,
-                    _ => unreachable!(),
-                }
-            }
-        };
-
-        mirrored_table * NAMETABLE_SIZE + offset
-    }
-
-    /// Mirror palette address
-    ///
-    /// Palette RAM has special mirroring:
-    /// - $3F10, $3F14, $3F18, $3F1C mirror $3F00, $3F04, $3F08, $3F0C
-    /// - This is because sprite palette entry 0 is actually the background color
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - Palette address ($3F00-$3FFF)
-    ///
-    /// # Returns
-    ///
-    /// Physical palette RAM address (0-31)
-    fn mirror_palette_addr(&self, addr: u16) -> usize {
-        // Palette RAM is at $3F00-$3F1F, mirrored every 32 bytes
-        let addr = (addr & 0x001F) as usize;
-
-        // Special mirroring: $3F10, $3F14, $3F18, $3F1C -> $3F00, $3F04, $3F08, $3F0C
-        if addr >= 16 && addr.is_multiple_of(4) {
-            addr - 16
-        } else {
-            addr
-        }
-    }
-
-    /// Read from PPU memory (VRAM)
-    ///
-    /// Handles reading from pattern tables (via cartridge), nametables, and palette RAM.
-    /// This is the internal memory read function used by PPUDATA.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - PPU memory address ($0000-$3FFF)
-    ///
-    /// # Returns
-    ///
-    /// The byte value at the specified address
-    fn read_ppu_memory(&self, addr: u16) -> u8 {
-        let addr = addr & 0x3FFF; // Mirror to 14-bit address space
-
-        match addr {
-            // Pattern tables: $0000-$1FFF
-            // Read from cartridge CHR-ROM/RAM via mapper
-            0x0000..=0x1FFF => {
-                if let Some(ref mapper) = self.mapper {
-                    mapper.borrow().ppu_read(addr)
-                } else {
-                    // No cartridge loaded, return 0
-                    0
-                }
-            }
-
-            // Nametables: $2000-$2FFF
-            0x2000..=0x2FFF => {
-                let mirrored_addr = self.mirror_nametable_addr(addr);
-                self.nametables[mirrored_addr]
-            }
-
-            // Nametable mirrors: $3000-$3EFF -> $2000-$2EFF
-            0x3000..=0x3EFF => {
-                let mirrored_addr = self.mirror_nametable_addr(addr - 0x1000);
-                self.nametables[mirrored_addr]
-            }
-
-            // Palette RAM: $3F00-$3FFF
-            0x3F00..=0x3FFF => {
-                let mirrored_addr = self.mirror_palette_addr(addr);
-                self.palette_ram[mirrored_addr]
-            }
-
-            _ => unreachable!(),
-        }
-    }
-
-    /// Write to PPU memory (VRAM)
-    ///
-    /// Handles writing to pattern tables (via cartridge), nametables, and palette RAM.
-    /// This is the internal memory write function used by PPUDATA.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - PPU memory address ($0000-$3FFF)
-    /// * `data` - Byte value to write
-    fn write_ppu_memory(&mut self, addr: u16, data: u8) {
-        let addr = addr & 0x3FFF; // Mirror to 14-bit address space
-
-        match addr {
-            // Pattern tables: $0000-$1FFF
-            // Write to cartridge CHR-RAM (if present) via mapper
-            0x0000..=0x1FFF => {
-                if let Some(ref mapper) = self.mapper {
-                    mapper.borrow_mut().ppu_write(addr, data);
-                }
-                // If no cartridge loaded, ignore writes
-            }
-
-            // Nametables: $2000-$2FFF
-            0x2000..=0x2FFF => {
-                let mirrored_addr = self.mirror_nametable_addr(addr);
-                self.nametables[mirrored_addr] = data;
-            }
-
-            // Nametable mirrors: $3000-$3EFF -> $2000-$2EFF
-            0x3000..=0x3EFF => {
-                let mirrored_addr = self.mirror_nametable_addr(addr - 0x1000);
-                self.nametables[mirrored_addr] = data;
-            }
-
-            // Palette RAM: $3F00-$3FFF
-            0x3F00..=0x3FFF => {
-                let mirrored_addr = self.mirror_palette_addr(addr);
-                self.palette_ram[mirrored_addr] = data;
-            }
-
-            _ => unreachable!(),
-        }
-    }
-
-    /// Read from a PPU register
-    ///
-    /// # Arguments
-    ///
-    /// * `register` - The register number (0-7)
-    ///
-    /// # Returns
-    ///
-    /// The value read from the register
-    ///
-    /// # Register Behaviors
-    ///
-    /// - PPUSTATUS ($2002): Returns status, clears VBlank flag and address latch
-    /// - OAMDATA ($2004): Returns OAM data at current OAM address
-    /// - PPUDATA ($2007): Returns buffered PPU data (palette reads are immediate)
-    /// - Write-only registers: Return 0
-    fn read_register(&mut self, register: u16) -> u8 {
-        match register {
-            0 => {
-                // $2000: PPUCTRL - Write only, return 0
-                0
-            }
-            1 => {
-                // $2001: PPUMASK - Write only, return 0
-                0
-            }
-            2 => {
-                // $2002: PPUSTATUS - Read only
-                // Reading PPUSTATUS has side effects:
-                // 1. Clears bit 7 (VBlank flag) after reading
-                // 2. Resets the address latch used by PPUSCROLL and PPUADDR
-                let status = self.ppustatus;
-
-                // Clear VBlank flag (bit 7)
-                self.ppustatus &= 0x7F;
-
-                // Reset address latch (w register)
-                self.write_latch = false;
-
-                status
-            }
-            3 => {
-                // $2003: OAMADDR - Write only, return 0
-                0
-            }
-            4 => {
-                // $2004: OAMDATA - Read/Write
-                // Read from OAM at current OAM address
-                self.oam[self.oam_addr as usize]
-            }
-            5 => {
-                // $2005: PPUSCROLL - Write only, return 0
-                0
-            }
-            6 => {
-                // $2006: PPUADDR - Write only, return 0
-                0
-            }
-            7 => {
-                // $2007: PPUDATA - Read/Write
-                // Reading from PPUDATA is buffered for addresses $0000-$3EFF
-                // Palette reads ($3F00-$3FFF) are immediate but still update the buffer
-
-                let addr = self.v & 0x3FFF;
-                let value;
-
-                if addr >= 0x3F00 {
-                    // Palette reads are immediate (not buffered)
-                    value = self.read_ppu_memory(addr);
-                    // But still update the buffer with nametable data "underneath"
-                    // This reads from the mirrored nametable address
-                    self.read_buffer = self.read_ppu_memory(addr & 0x2FFF);
-                } else {
-                    // Normal reads are buffered
-                    value = self.read_buffer;
-                    self.read_buffer = self.read_ppu_memory(addr);
-                }
-
-                // Increment address based on PPUCTRL bit 2
-                let increment = if self.ppuctrl & 0x04 != 0 { 32 } else { 1 };
-                self.v = self.v.wrapping_add(increment) & 0x3FFF;
-
-                value
-            }
-            _ => {
-                // Should not reach here due to masking, but return 0 as fallback
-                0
-            }
-        }
-    }
-
-    /// Write to a PPU register
-    ///
-    /// # Arguments
-    ///
-    /// * `register` - The register number (0-7)
-    /// * `data` - The value to write
-    ///
-    /// # Register Behaviors
-    ///
-    /// - PPUCTRL ($2000): Stores control flags and updates nametable select in t
-    /// - PPUMASK ($2001): Stores mask flags
-    /// - OAMADDR ($2003): Sets OAM address
-    /// - OAMDATA ($2004): Writes to OAM and increments address
-    /// - PPUSCROLL ($2005): Sets scroll position (requires 2 writes, updates t and x)
-    /// - PPUADDR ($2006): Sets PPU address (requires 2 writes, updates t then v)
-    /// - PPUDATA ($2007): Writes to PPU memory and increments v
-    /// - Read-only registers: Writes are ignored
-    fn write_register(&mut self, register: u16, data: u8) {
-        match register {
-            0 => {
-                // $2000: PPUCTRL - Write only
-                self.ppuctrl = data;
-
-                // Update nametable select bits in t register
-                // t: ...GH.. ........ <- d: ......GH
-                // (bits 10-11 of t from bits 0-1 of data)
-                self.t = (self.t & 0xF3FF) | (((data as u16) & 0x03) << 10);
-            }
-            1 => {
-                // $2001: PPUMASK - Write only
-                self.ppumask = data;
-            }
-            2 => {
-                // $2002: PPUSTATUS - Read only, ignore writes
-            }
-            3 => {
-                // $2003: OAMADDR - Write only
-                self.oam_addr = data;
-            }
-            4 => {
-                // $2004: OAMDATA - Read/Write
-                // Write to OAM at current OAM address
-                self.oam[self.oam_addr as usize] = data;
-
-                // Increment OAM address
-                self.oam_addr = self.oam_addr.wrapping_add(1);
-            }
-            5 => {
-                // $2005: PPUSCROLL - Write×2
-                // This register uses complex bit manipulation to update the internal
-                // scroll registers (t and fine_x)
-
-                if !self.write_latch {
-                    // First write: X scroll
-                    // t: ....... ...ABCDE <- d: ABCDEFGH
-                    // x:              FGH <- d: ABCDEFGH
-                    self.t = (self.t & 0xFFE0) | ((data as u16) >> 3);
-                    self.fine_x = data & 0x07;
-                    self.write_latch = true;
-                } else {
-                    // Second write: Y scroll
-                    // t: FGH..AB CDE..... <- d: ABCDEFGH
-                    self.t = (self.t & 0x8FFF) | (((data as u16) & 0x07) << 12);
-                    self.t = (self.t & 0xFC1F) | (((data as u16) & 0xF8) << 2);
-                    self.write_latch = false;
-                }
-            }
-            6 => {
-                // $2006: PPUADDR - Write×2
-                // First write: High byte of address
-                // Second write: Low byte of address
-
-                if !self.write_latch {
-                    // First write: high byte
-                    // t: .CDEFGH ........ <- d: ..CDEFGH
-                    // t: X...... ........ <- 0
-                    self.t = (self.t & 0x80FF) | (((data as u16) & 0x3F) << 8);
-                    self.write_latch = true;
-                } else {
-                    // Second write: low byte
-                    // t: ....... ABCDEFGH <- d: ABCDEFGH
-                    // v: <...all bits...> <- t: <...all bits...>
-                    self.t = (self.t & 0xFF00) | (data as u16);
-                    self.v = self.t;
-                    self.write_latch = false;
-                }
-            }
-            7 => {
-                // $2007: PPUDATA - Read/Write
-                // Write to PPU memory at current address (v)
-                self.write_ppu_memory(self.v, data);
-
-                // Increment address based on PPUCTRL bit 2
-                let increment = if self.ppuctrl & 0x04 != 0 { 32 } else { 1 };
-                self.v = self.v.wrapping_add(increment) & 0x3FFF;
-            }
-            _ => {
-                // Should not reach here due to masking, but ignore as fallback
-            }
-        }
     }
 }
 
