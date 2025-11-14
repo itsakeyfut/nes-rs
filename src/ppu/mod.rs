@@ -1948,7 +1948,11 @@ mod tests {
     fn test_frame_buffer_size() {
         let ppu = Ppu::new();
         let frame = ppu.frame();
-        assert_eq!(frame.len(), 256 * 240, "Frame buffer should be 256x240 pixels");
+        assert_eq!(
+            frame.len(),
+            256 * 240,
+            "Frame buffer should be 256x240 pixels"
+        );
     }
 
     #[test]
@@ -1977,7 +1981,10 @@ mod tests {
         // Frame buffer should be cleared when rendering is disabled
         let frame = ppu.frame();
         for &pixel in frame.iter() {
-            assert_eq!(pixel, 0, "Frame should be cleared when rendering is disabled");
+            assert_eq!(
+                pixel, 0,
+                "Frame should be cleared when rendering is disabled"
+            );
         }
     }
 
@@ -2026,8 +2033,16 @@ mod tests {
         // Write tile data to pattern table tile 1
         // This goes through the mapper
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF); // Bitplane 0: all 1s
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00); // Bitplane 1: all 0s
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0xFF); // Bitplane 0: all 1s
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00); // Bitplane 1: all 0s
         }
 
         // Set up palette
@@ -2061,8 +2076,16 @@ mod tests {
         // Set up tile data directly in CHR-RAM
         // Tile 1: all pixels use color index 1
         for i in 0..8 {
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0010 + i, 0xFF); // Bitplane 0
-            ppu.mapper.as_ref().unwrap().borrow_mut().ppu_write(0x0018 + i, 0x00); // Bitplane 1
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0010 + i, 0xFF); // Bitplane 0
+            ppu.mapper
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .ppu_write(0x0018 + i, 0x00); // Bitplane 1
         }
 
         // Set up nametable directly - all tiles use tile 1
@@ -2100,8 +2123,8 @@ mod tests {
         ppu.write(PPUADDR, 0x23);
         ppu.write(PPUADDR, 0xC0); // Attribute table for nametable 0
         ppu.write(PPUDATA, 0xE4); // Binary: 11 10 01 00
-        // This byte covers tiles (0,0) to (3,3)
-        // Palette indices: top-left=00, top-right=01, bottom-left=10, bottom-right=11
+                                  // This byte covers tiles (0,0) to (3,3)
+                                  // Palette indices: top-left=00, top-right=01, bottom-left=10, bottom-right=11
 
         let palette_0_0 = ppu.read_attribute_byte(0x2000, 0, 0);
         assert_eq!(palette_0_0, 0, "Tile (0,0) should use palette 0");
@@ -2147,16 +2170,28 @@ mod tests {
         // Bitplane 1 = 0b01010101 → bits 7,5,3,1 = 0; bits 6,4,2,0 = 1
         // Color = (bit_1 << 1) | bit_0
         let color_0 = ppu.fetch_tile_pixel(0x0000, 0, 0, 0);
-        assert_eq!(color_0, 1, "Pixel (0,0): bitplane0[7]=1, bitplane1[7]=0 → color = 01 = 1");
+        assert_eq!(
+            color_0, 1,
+            "Pixel (0,0): bitplane0[7]=1, bitplane1[7]=0 → color = 01 = 1"
+        );
 
         let color_1 = ppu.fetch_tile_pixel(0x0000, 0, 1, 0);
-        assert_eq!(color_1, 2, "Pixel (1,0): bitplane0[6]=0, bitplane1[6]=1 → color = 10 = 2");
+        assert_eq!(
+            color_1, 2,
+            "Pixel (1,0): bitplane0[6]=0, bitplane1[6]=1 → color = 10 = 2"
+        );
 
         let color_2 = ppu.fetch_tile_pixel(0x0000, 0, 2, 0);
-        assert_eq!(color_2, 1, "Pixel (2,0): bitplane0[5]=1, bitplane1[5]=0 → color = 01 = 1");
+        assert_eq!(
+            color_2, 1,
+            "Pixel (2,0): bitplane0[5]=1, bitplane1[5]=0 → color = 01 = 1"
+        );
 
         let color_3 = ppu.fetch_tile_pixel(0x0000, 0, 3, 0);
-        assert_eq!(color_3, 2, "Pixel (3,0): bitplane0[4]=0, bitplane1[4]=1 → color = 10 = 2");
+        assert_eq!(
+            color_3, 2,
+            "Pixel (3,0): bitplane0[4]=0, bitplane1[4]=1 → color = 10 = 2"
+        );
     }
 
     #[test]
@@ -2181,16 +2216,48 @@ mod tests {
         ppu.write(PPUDATA, 0x31); // Index 7: Palette 1, color 3
 
         // Test palette 0
-        assert_eq!(ppu.get_background_color(0, 0), 0x0F, "Color 0 should be universal background");
-        assert_eq!(ppu.get_background_color(0, 1), 0x10, "Palette 0, color 1 at index 1");
-        assert_eq!(ppu.get_background_color(0, 2), 0x20, "Palette 0, color 2 at index 2");
-        assert_eq!(ppu.get_background_color(0, 3), 0x30, "Palette 0, color 3 at index 3");
+        assert_eq!(
+            ppu.get_background_color(0, 0),
+            0x0F,
+            "Color 0 should be universal background"
+        );
+        assert_eq!(
+            ppu.get_background_color(0, 1),
+            0x10,
+            "Palette 0, color 1 at index 1"
+        );
+        assert_eq!(
+            ppu.get_background_color(0, 2),
+            0x20,
+            "Palette 0, color 2 at index 2"
+        );
+        assert_eq!(
+            ppu.get_background_color(0, 3),
+            0x30,
+            "Palette 0, color 3 at index 3"
+        );
 
         // Test palette 1
-        assert_eq!(ppu.get_background_color(1, 0), 0x0F, "Color 0 should be universal background");
-        assert_eq!(ppu.get_background_color(1, 1), 0x11, "Palette 1, color 1 at index 5");
-        assert_eq!(ppu.get_background_color(1, 2), 0x21, "Palette 1, color 2 at index 6");
-        assert_eq!(ppu.get_background_color(1, 3), 0x31, "Palette 1, color 3 at index 7");
+        assert_eq!(
+            ppu.get_background_color(1, 0),
+            0x0F,
+            "Color 0 should be universal background"
+        );
+        assert_eq!(
+            ppu.get_background_color(1, 1),
+            0x11,
+            "Palette 1, color 1 at index 5"
+        );
+        assert_eq!(
+            ppu.get_background_color(1, 2),
+            0x21,
+            "Palette 1, color 2 at index 6"
+        );
+        assert_eq!(
+            ppu.get_background_color(1, 3),
+            0x31,
+            "Palette 1, color 3 at index 7"
+        );
     }
 
     #[test]
@@ -2203,7 +2270,11 @@ mod tests {
 
         // Test pattern table 1 (PPUCTRL bit 4 = 1)
         ppu.write(PPUCTRL, 0x10);
-        assert_eq!(ppu.ppuctrl & 0x10, 0x10, "Pattern table 1 should be selected");
+        assert_eq!(
+            ppu.ppuctrl & 0x10,
+            0x10,
+            "Pattern table 1 should be selected"
+        );
     }
 
     #[test]
