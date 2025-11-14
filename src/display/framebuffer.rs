@@ -85,6 +85,14 @@ impl FrameBuffer {
         &mut self.pixels
     }
 
+    /// Copy pixel data from another frame buffer
+    ///
+    /// # Arguments
+    /// * `other` - Source frame buffer to copy from
+    pub fn copy_from(&mut self, other: &FrameBuffer) {
+        self.pixels.copy_from_slice(&other.pixels);
+    }
+
     /// Convert the frame buffer to RGBA format for display
     ///
     /// # Arguments

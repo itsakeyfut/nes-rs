@@ -5,6 +5,7 @@
 
 use super::framebuffer::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH};
 use pixels::{Pixels, SurfaceTexture};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -43,7 +44,7 @@ impl WindowConfig {
 
     /// Set the target frame rate
     pub fn with_fps(mut self, fps: u32) -> Self {
-        self.target_fps = fps;
+        self.target_fps = fps.max(1);
         self
     }
 
@@ -77,8 +78,8 @@ impl Default for WindowConfig {
 
 /// Display window for rendering NES output
 pub struct DisplayWindow {
-    window: Option<Window>,
-    pixels: Option<Box<Pixels<'static>>>,
+    window: Option<Arc<Window>>,
+    pixels: Option<Pixels<'static>>,
     config: WindowConfig,
     frame_buffer: FrameBuffer,
     last_frame_time: Instant,
@@ -158,31 +159,19 @@ impl ApplicationHandler for DisplayWindow {
             .create_window(window_attributes)
             .expect("Failed to create window");
 
-        // Store window first
-        self.window = Some(window);
+        // Wrap window in Arc for shared ownership
+        let window = Arc::new(window);
+        let window_size = window.inner_size();
 
-        // Now create pixel buffer using a reference to the stored window
-        // SAFETY: We know the window exists and will outlive the pixels
-        // because they're both stored in the same struct and pixels is dropped first.
-        // We use unsafe to extend the lifetime to 'static, which is safe because
-        // the window lives as long as self.
-        let window_ref = self.window.as_ref().unwrap();
-        let window_size = window_ref.inner_size();
-
-        // Create a raw pointer and transmute to 'static lifetime
-        // This is safe because:
-        // 1. Window and Pixels are stored in the same struct
-        // 2. Pixels is dropped before Window (field order)
-        // 3. Neither is moved after creation
-        let window_ptr = window_ref as *const Window;
-        let window_static: &'static Window = unsafe { &*window_ptr };
+        // Create surface texture using Arc<Window> for safe 'static lifetime
         let surface_texture =
-            SurfaceTexture::new(window_size.width, window_size.height, window_static);
+            SurfaceTexture::new(window_size.width, window_size.height, window.clone());
 
         let pixels = Pixels::new(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32, surface_texture)
             .expect("Failed to create pixel buffer");
 
-        self.pixels = Some(Box::new(pixels));
+        self.window = Some(window);
+        self.pixels = Some(pixels);
     }
 
     fn window_event(
