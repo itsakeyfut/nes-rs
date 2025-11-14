@@ -3,6 +3,19 @@
 use super::constants::{NAMETABLE_HEIGHT, NAMETABLE_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, TILE_SIZE};
 use super::Ppu;
 
+/// Represents the current phase of the background tile fetch
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TileFetchPhase {
+    /// Fetching nametable byte (tile index)
+    Nametable,
+    /// Fetching attribute byte (palette selection)
+    Attribute,
+    /// Fetching pattern table low bitplane
+    PatternLow,
+    /// Fetching pattern table high bitplane
+    PatternHigh,
+}
+
 /// Represents a parsed sprite from OAM
 #[derive(Debug, Clone, Copy)]
 struct Sprite {
@@ -532,5 +545,503 @@ impl Ppu {
 
         // Then render sprites on top
         self.render_sprites();
+    }
+
+    // ========================================
+    // Scanline-based Rendering Methods
+    // ========================================
+
+    /// Determine which phase of tile fetching we're in based on the cycle
+    ///
+    /// The tile fetch happens in 8-cycle intervals with 4 phases:
+    /// - Cycles 0-1: Nametable byte
+    /// - Cycles 2-3: Attribute byte
+    /// - Cycles 4-5: Pattern table low
+    /// - Cycles 6-7: Pattern table high
+    fn get_tile_fetch_phase(&self, cycle: u16) -> TileFetchPhase {
+        match cycle % 8 {
+            0 | 1 => TileFetchPhase::Nametable,
+            2 | 3 => TileFetchPhase::Attribute,
+            4 | 5 => TileFetchPhase::PatternLow,
+            6 | 7 => TileFetchPhase::PatternHigh,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Fetch the nametable byte for the current tile
+    ///
+    /// Uses the v register to determine which tile to fetch.
+    fn fetch_nametable_byte(&mut self) {
+        // v register layout: yyy NN YYYYY XXXXX
+        // Nametable address = 0x2000 | (v & 0x0FFF)
+        let addr = 0x2000 | (self.v & 0x0FFF);
+        self.bg_nametable_byte = self.read_ppu_memory(addr);
+    }
+
+    /// Fetch the attribute byte for the current tile
+    ///
+    /// Uses the v register to determine which attribute byte to fetch.
+    fn fetch_attribute_byte(&mut self) {
+        // v register layout: yyy NN YYYYY XXXXX
+        // Attribute address = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07)
+        let v = self.v;
+        let addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+        let attr_byte = self.read_ppu_memory(addr);
+
+        // Extract the 2-bit palette index based on the current tile position
+        // The attribute byte covers a 4x4 tile area (2x2 blocks of 2x2 tiles)
+        let coarse_x = v & 0x001F;
+        let coarse_y = (v >> 5) & 0x001F;
+
+        // Determine which 2x2 tile block within the 4x4 area
+        let shift = ((coarse_y & 0x02) << 1) | (coarse_x & 0x02);
+        self.bg_attribute_byte = (attr_byte >> shift) & 0x03;
+    }
+
+    /// Fetch the pattern table low bitplane byte for the current tile
+    fn fetch_pattern_low_byte(&mut self) {
+        // Pattern table address based on PPUCTRL bit 4
+        let pattern_table_base = if (self.ppuctrl & 0x10) != 0 {
+            0x1000
+        } else {
+            0x0000
+        };
+
+        // Fine Y scroll from v register (bits 12-14)
+        let fine_y = (self.v >> 12) & 0x07;
+
+        // Tile address = pattern_table_base + tile_index * 16 + fine_y
+        let addr = pattern_table_base + (self.bg_nametable_byte as u16) * 16 + fine_y;
+        self.bg_pattern_low = self.read_ppu_memory(addr);
+    }
+
+    /// Fetch the pattern table high bitplane byte for the current tile
+    fn fetch_pattern_high_byte(&mut self) {
+        // Pattern table address based on PPUCTRL bit 4
+        let pattern_table_base = if (self.ppuctrl & 0x10) != 0 {
+            0x1000
+        } else {
+            0x0000
+        };
+
+        // Fine Y scroll from v register (bits 12-14)
+        let fine_y = (self.v >> 12) & 0x07;
+
+        // Tile address = pattern_table_base + tile_index * 16 + fine_y + 8 (high bitplane)
+        let addr = pattern_table_base + (self.bg_nametable_byte as u16) * 16 + fine_y + 8;
+        self.bg_pattern_high = self.read_ppu_memory(addr);
+    }
+
+    /// Perform background tile fetch based on the current cycle
+    ///
+    /// This is called during rendering cycles to fetch tile data in the pipeline.
+    pub(super) fn perform_background_fetch(&mut self, cycle: u16) {
+        let phase = self.get_tile_fetch_phase(cycle);
+
+        // Perform the appropriate fetch on odd cycles (the second cycle of each phase)
+        if (cycle & 1) == 1 {
+            match phase {
+                TileFetchPhase::Nametable => self.fetch_nametable_byte(),
+                TileFetchPhase::Attribute => self.fetch_attribute_byte(),
+                TileFetchPhase::PatternLow => self.fetch_pattern_low_byte(),
+                TileFetchPhase::PatternHigh => self.fetch_pattern_high_byte(),
+            }
+        }
+    }
+
+    /// Load the fetched tile data into the shift registers
+    ///
+    /// This is called every 8 cycles after a complete tile has been fetched.
+    pub(super) fn load_shift_registers(&mut self) {
+        // Load the pattern data into the low 8 bits of the shift registers
+        self.bg_pattern_shift_low =
+            (self.bg_pattern_shift_low & 0xFF00) | (self.bg_pattern_low as u16);
+        self.bg_pattern_shift_high =
+            (self.bg_pattern_shift_high & 0xFF00) | (self.bg_pattern_high as u16);
+
+        // Load the attribute data (extend 2 bits to 8 bits)
+        let attr_low = if (self.bg_attribute_byte & 0x01) != 0 {
+            0xFF
+        } else {
+            0x00
+        };
+        let attr_high = if (self.bg_attribute_byte & 0x02) != 0 {
+            0xFF
+        } else {
+            0x00
+        };
+
+        self.bg_attribute_shift_low = (self.bg_attribute_shift_low & 0xFF00) | (attr_low as u16);
+        self.bg_attribute_shift_high = (self.bg_attribute_shift_high & 0xFF00) | (attr_high as u16);
+    }
+
+    /// Shift the background shift registers by 1 pixel
+    ///
+    /// This is called every cycle during rendering to advance to the next pixel.
+    pub(super) fn shift_background_registers(&mut self) {
+        // Shift pattern registers left by 1
+        self.bg_pattern_shift_low <<= 1;
+        self.bg_pattern_shift_high <<= 1;
+
+        // Shift attribute registers left by 1
+        self.bg_attribute_shift_low <<= 1;
+        self.bg_attribute_shift_high <<= 1;
+    }
+
+    /// Get the current background pixel color from the shift registers
+    ///
+    /// Returns the palette index (0-63) for the current pixel.
+    pub(super) fn get_background_pixel(&self) -> u8 {
+        // Get the bit at position (15 - fine_x) from each shift register
+        let bit_position = 15 - self.fine_x;
+
+        let bit_0 = (self.bg_pattern_shift_low >> bit_position) & 0x01;
+        let bit_1 = (self.bg_pattern_shift_high >> bit_position) & 0x01;
+        let color_index = ((bit_1 << 1) | bit_0) as u8;
+
+        let attr_0 = (self.bg_attribute_shift_low >> bit_position) & 0x01;
+        let attr_1 = (self.bg_attribute_shift_high >> bit_position) & 0x01;
+        let palette_index = ((attr_1 << 1) | attr_0) as u8;
+
+        // Get the final color from palette RAM
+        self.get_background_color(palette_index, color_index)
+    }
+
+    /// Increment the coarse X scroll in the v register
+    ///
+    /// This is called after rendering each tile (every 8 pixels).
+    pub(super) fn increment_scroll_x(&mut self) {
+        if !self.is_rendering_enabled() {
+            return;
+        }
+
+        // Increment coarse X (bits 0-4)
+        if (self.v & 0x001F) == 31 {
+            // Coarse X wraps to 0
+            self.v &= !0x001F;
+            // Switch horizontal nametable
+            self.v ^= 0x0400;
+        } else {
+            // Increment coarse X
+            self.v += 1;
+        }
+    }
+
+    /// Increment the Y scroll in the v register
+    ///
+    /// This is called at the end of each visible scanline (dot 256).
+    pub(super) fn increment_scroll_y(&mut self) {
+        if !self.is_rendering_enabled() {
+            return;
+        }
+
+        // Increment fine Y (bits 12-14)
+        if (self.v & 0x7000) != 0x7000 {
+            // Increment fine Y
+            self.v += 0x1000;
+        } else {
+            // Fine Y wraps to 0
+            self.v &= !0x7000;
+
+            // Increment coarse Y
+            let mut coarse_y = (self.v >> 5) & 0x1F;
+            if coarse_y == 29 {
+                // Coarse Y wraps to 0
+                coarse_y = 0;
+                // Switch vertical nametable
+                self.v ^= 0x0800;
+            } else if coarse_y == 31 {
+                // Coarse Y wraps to 0 (without switching nametable)
+                coarse_y = 0;
+            } else {
+                // Increment coarse Y
+                coarse_y += 1;
+            }
+
+            // Update v with new coarse Y
+            self.v = (self.v & !0x03E0) | (coarse_y << 5);
+        }
+    }
+
+    /// Copy horizontal scroll bits from t to v
+    ///
+    /// This is called at dot 257 of each scanline.
+    pub(super) fn copy_horizontal_scroll(&mut self) {
+        if !self.is_rendering_enabled() {
+            return;
+        }
+
+        // Copy bits 0-4 (coarse X) and bit 10 (horizontal nametable) from t to v
+        self.v = (self.v & !0x041F) | (self.t & 0x041F);
+    }
+
+    /// Copy vertical scroll bits from t to v
+    ///
+    /// This is called at dot 280-304 of the pre-render scanline.
+    pub(super) fn copy_vertical_scroll(&mut self) {
+        if !self.is_rendering_enabled() {
+            return;
+        }
+
+        // Copy bits 5-9 (coarse Y), bits 12-14 (fine Y), and bit 11 (vertical nametable) from t to v
+        self.v = (self.v & !0x7BE0) | (self.t & 0x7BE0);
+    }
+
+    /// Evaluate sprites for the next scanline
+    ///
+    /// This scans through all 64 sprites in OAM and finds up to 8 sprites
+    /// that will be visible on the next scanline. The results are stored
+    /// in secondary OAM.
+    ///
+    /// This also sets the sprite overflow flag if more than 8 sprites are found.
+    pub(super) fn evaluate_sprites_for_next_scanline(&mut self) {
+        // Clear sprite 0 hit flag at the start of frame
+        if self.scanline == 0 {
+            self.ppustatus &= !0x40;
+        }
+
+        // The next scanline is the current scanline + 1
+        let next_scanline = self.scanline + 1;
+
+        // Skip if we're past visible scanlines
+        if next_scanline >= SCREEN_HEIGHT as u16 {
+            self.sprite_count = 0;
+            self.sprite_0_present = false;
+            return;
+        }
+
+        let sprite_height = self.get_sprite_height();
+        let mut count = 0;
+        let mut overflow = false;
+
+        self.sprite_0_present = false;
+
+        // Scan through all 64 sprites in OAM
+        for i in 0..64 {
+            let base = i * 4;
+            let sprite_y = self.oam[base] as u16 + 1; // Y position is top - 1
+
+            // Check if sprite is visible on the next scanline
+            if next_scanline >= sprite_y && next_scanline < sprite_y + sprite_height as u16 {
+                if count < 8 {
+                    // Add sprite to secondary OAM
+                    self.secondary_oam[count] = (
+                        self.oam[base],     // Y position
+                        self.oam[base + 1], // Tile index
+                        self.oam[base + 2], // Attributes
+                        self.oam[base + 3], // X position
+                    );
+
+                    // Check if this is sprite 0
+                    if i == 0 {
+                        self.sprite_0_present = true;
+                    }
+
+                    count += 1;
+                } else {
+                    // More than 8 sprites on this scanline - set overflow flag
+                    overflow = true;
+                    break;
+                }
+            }
+        }
+
+        self.sprite_count = count;
+
+        // Update sprite overflow flag
+        if overflow {
+            self.ppustatus |= 0x20;
+        } else {
+            self.ppustatus &= !0x20;
+        }
+
+        // Load sprite shift registers for the next scanline
+        self.load_sprite_shift_registers(next_scanline);
+    }
+
+    /// Load sprite pattern data into shift registers
+    ///
+    /// This fetches the pattern data for all sprites in secondary OAM
+    /// and loads them into the sprite shift registers.
+    fn load_sprite_shift_registers(&mut self, scanline: u16) {
+        for i in 0..8 {
+            if i < self.sprite_count {
+                let (sprite_y, tile_index, attributes, x_pos) = self.secondary_oam[i];
+
+                // Calculate which row of the sprite we're rendering
+                let sprite_y = sprite_y as u16 + 1;
+                let row = (scanline - sprite_y) as usize;
+
+                // Fetch sprite pixel data for this row
+                let sprite_height = self.get_sprite_height();
+
+                // Apply vertical flip
+                let row = if (attributes & 0x80) != 0 {
+                    sprite_height - 1 - row
+                } else {
+                    row
+                };
+
+                // Fetch pattern data based on sprite size
+                let (pattern_low, pattern_high) = if sprite_height == 8 {
+                    // 8x8 sprite mode
+                    let pattern_table_base = if (self.ppuctrl & 0x08) != 0 {
+                        0x1000
+                    } else {
+                        0x0000
+                    };
+
+                    let tile_addr = pattern_table_base + (tile_index as u16) * 16;
+                    let low = self.read_ppu_memory(tile_addr + row as u16);
+                    let high = self.read_ppu_memory(tile_addr + row as u16 + 8);
+                    (low, high)
+                } else {
+                    // 8x16 sprite mode
+                    let pattern_table_base = if (tile_index & 0x01) != 0 {
+                        0x1000
+                    } else {
+                        0x0000
+                    };
+
+                    let tile_pair = tile_index & 0xFE;
+                    let (tile, tile_row) = if row < 8 {
+                        (tile_pair, row)
+                    } else {
+                        (tile_pair + 1, row - 8)
+                    };
+
+                    let tile_addr = pattern_table_base + (tile as u16) * 16;
+                    let low = self.read_ppu_memory(tile_addr + tile_row as u16);
+                    let high = self.read_ppu_memory(tile_addr + tile_row as u16 + 8);
+                    (low, high)
+                };
+
+                // Apply horizontal flip if needed
+                let (pattern_low, pattern_high) = if (attributes & 0x40) != 0 {
+                    // Flip horizontally by reversing the bits
+                    (pattern_low.reverse_bits(), pattern_high.reverse_bits())
+                } else {
+                    (pattern_low, pattern_high)
+                };
+
+                // Load into shift registers
+                self.sprite_pattern_shift_low[i] = pattern_low;
+                self.sprite_pattern_shift_high[i] = pattern_high;
+                self.sprite_attributes[i] = attributes;
+                self.sprite_x_positions[i] = x_pos;
+            } else {
+                // No sprite in this slot
+                self.sprite_pattern_shift_low[i] = 0;
+                self.sprite_pattern_shift_high[i] = 0;
+                self.sprite_attributes[i] = 0;
+                self.sprite_x_positions[i] = 0xFF;
+            }
+        }
+    }
+
+    /// Decrement sprite X positions and shift active sprites
+    ///
+    /// This is called every cycle to update sprite X positions.
+    /// When a sprite's X position reaches 0, it becomes active and starts shifting.
+    pub(super) fn update_sprite_shifters(&mut self) {
+        for i in 0..8 {
+            if self.sprite_x_positions[i] == 0 {
+                // Sprite is active, shift its pattern
+                self.sprite_pattern_shift_low[i] <<= 1;
+                self.sprite_pattern_shift_high[i] <<= 1;
+            } else if self.sprite_x_positions[i] < 0xFF {
+                // Decrement X position (0xFF means no sprite)
+                self.sprite_x_positions[i] = self.sprite_x_positions[i].saturating_sub(1);
+            }
+        }
+    }
+
+    /// Get sprite pixel and palette information at the current position
+    ///
+    /// Returns (sprite_index, color_index, palette_index, priority, is_sprite_0)
+    /// or None if no sprite pixel is visible.
+    pub(super) fn get_sprite_pixel(&self) -> Option<(usize, u8, u8, bool, bool)> {
+        // Check if sprite rendering is enabled
+        if (self.ppumask & 0x10) == 0 {
+            return None;
+        }
+
+        // Find the first non-transparent sprite pixel (priority order)
+        for i in 0..self.sprite_count {
+            // Only check sprites that are active (X position is 0)
+            if self.sprite_x_positions[i] == 0 {
+                // Get the leftmost bit from the shift registers
+                let bit_0 = (self.sprite_pattern_shift_low[i] >> 7) & 0x01;
+                let bit_1 = (self.sprite_pattern_shift_high[i] >> 7) & 0x01;
+                let color_index = (bit_1 << 1) | bit_0;
+
+                // Skip transparent pixels (color 0)
+                if color_index != 0 {
+                    let palette_index = self.sprite_attributes[i] & 0x03;
+                    let priority = (self.sprite_attributes[i] & 0x20) != 0; // Behind background if set
+                    let is_sprite_0 = i == 0 && self.sprite_0_present;
+
+                    return Some((i, color_index, palette_index, priority, is_sprite_0));
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Composite background and sprite pixels to get the final pixel color
+    ///
+    /// This handles sprite priority and sprite 0 hit detection.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - X coordinate of the pixel
+    /// * `bg_pixel` - Background pixel color
+    ///
+    /// # Returns
+    ///
+    /// The final pixel color to display
+    pub(super) fn composite_pixel(&mut self, x: usize, bg_pixel: u8) -> u8 {
+        // Get sprite pixel if any
+        if let Some((_, color_index, palette_index, behind_bg, is_sprite_0)) =
+            self.get_sprite_pixel()
+        {
+            // Get the sprite color from palette RAM
+            let sprite_color = self.get_sprite_color(palette_index, color_index);
+
+            // Check for sprite 0 hit
+            // Sprite 0 hit occurs when:
+            // - Sprite 0 is being rendered
+            // - A non-transparent sprite pixel overlaps a non-transparent background pixel
+            // - X coordinate is not 255
+            // - Rendering is enabled for both sprites and background
+            if is_sprite_0 && x != 255 {
+                // Check if background pixel is non-transparent
+                // Background color index 0 is the universal background color
+                let bg_is_transparent = bg_pixel == self.palette_ram[0];
+
+                if !bg_is_transparent {
+                    // Set sprite 0 hit flag
+                    self.ppustatus |= 0x40;
+                }
+            }
+
+            // Handle sprite priority
+            if behind_bg {
+                // Sprite is behind background
+                // Only draw sprite if background pixel is transparent
+                if bg_pixel == self.palette_ram[0] {
+                    sprite_color
+                } else {
+                    bg_pixel
+                }
+            } else {
+                // Sprite is in front of background
+                sprite_color
+            }
+        } else {
+            // No sprite pixel, use background
+            bg_pixel
+        }
     }
 }

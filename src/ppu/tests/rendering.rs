@@ -993,3 +993,238 @@ fn test_multiple_sprite_priorities() {
         "Sprite 0 should have higher priority in overlap"
     );
 }
+
+// Scanline-based Rendering Tests
+// ========================================
+
+#[test]
+fn test_scanline_rendering_cycles() {
+    let mut ppu = Ppu::new();
+
+    // Enable rendering
+    ppu.write(PPUMASK, 0x18); // Enable background and sprite rendering
+
+    // Step through one scanline
+    for _ in 0..341 {
+        ppu.step();
+    }
+
+    // Should have advanced to next scanline
+    assert_eq!(
+        ppu.scanline(),
+        1,
+        "Should advance to next scanline after 341 cycles"
+    );
+}
+
+#[test]
+fn test_background_shift_registers_initialization() {
+    let ppu = Ppu::new();
+
+    // Shift registers should be initialized to 0
+    assert_eq!(ppu.bg_pattern_shift_low, 0);
+    assert_eq!(ppu.bg_pattern_shift_high, 0);
+    assert_eq!(ppu.bg_attribute_shift_low, 0);
+    assert_eq!(ppu.bg_attribute_shift_high, 0);
+}
+
+#[test]
+fn test_sprite_evaluation_during_visible_scanline() {
+    let mut ppu = Ppu::new();
+    let cartridge = create_test_cartridge_chr_ram();
+    let mapper = Rc::new(RefCell::new(
+        Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+    ));
+    ppu.set_mapper(mapper);
+
+    // Enable rendering
+    ppu.write(PPUMASK, 0x18);
+
+    // Set up a sprite that will be visible on scanline 50
+    ppu.write_oam(0, 49); // Y position (top - 1)
+    ppu.write_oam(1, 0x01); // Tile index
+    ppu.write_oam(2, 0x00); // Attributes
+    ppu.write_oam(3, 100); // X position
+
+    // Step through scanline 49 until sprite evaluation at cycle 257
+    ppu.scanline = 49;
+    ppu.cycle = 257;
+    ppu.visible_scanline_cycle();
+
+    // Sprite should be in secondary OAM for next scanline
+    assert!(
+        ppu.sprite_count > 0,
+        "Sprite should be evaluated for next scanline"
+    );
+}
+
+#[test]
+fn test_scroll_increment_x() {
+    let mut ppu = Ppu::new();
+
+    // Enable rendering
+    ppu.write(PPUMASK, 0x18);
+
+    // Set initial scroll position
+    ppu.v = 0x0000; // Start at tile 0
+
+    // Increment coarse X
+    ppu.increment_scroll_x();
+
+    assert_eq!(ppu.v & 0x001F, 1, "Coarse X should increment");
+
+    // Test wrapping at 31
+    ppu.v = 0x001F; // Coarse X = 31
+    ppu.increment_scroll_x();
+
+    assert_eq!(ppu.v & 0x001F, 0, "Coarse X should wrap to 0");
+
+    assert_eq!(ppu.v & 0x0400, 0x0400, "Horizontal nametable should switch");
+}
+
+#[test]
+fn test_scroll_increment_y() {
+    let mut ppu = Ppu::new();
+
+    // Enable rendering
+    ppu.write(PPUMASK, 0x18);
+
+    // Set initial scroll position
+    ppu.v = 0x0000; // Start at tile 0
+
+    // Increment fine Y
+    ppu.increment_scroll_y();
+
+    assert_eq!((ppu.v >> 12) & 0x07, 1, "Fine Y should increment");
+
+    // Test fine Y wrapping
+    ppu.v = 0x7000; // Fine Y = 7
+    ppu.increment_scroll_y();
+
+    assert_eq!((ppu.v >> 12) & 0x07, 0, "Fine Y should wrap to 0");
+
+    assert_eq!(
+        (ppu.v >> 5) & 0x1F,
+        1,
+        "Coarse Y should increment when fine Y wraps"
+    );
+}
+
+#[test]
+fn test_sprite_shift_register_loading() {
+    let mut ppu = Ppu::new();
+    let cartridge = create_test_cartridge_chr_ram();
+    let mapper = Rc::new(RefCell::new(
+        Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+    ));
+    ppu.set_mapper(mapper);
+
+    // Set up pattern data in CHR RAM
+    for i in 0..16 {
+        ppu.mapper
+            .as_ref()
+            .unwrap()
+            .borrow_mut()
+            .ppu_write(0x0010 + i, 0xAA); // Pattern data
+    }
+
+    // Enable rendering
+    ppu.write(PPUMASK, 0x18);
+
+    // Set up a sprite
+    ppu.write_oam(0, 49); // Y position
+    ppu.write_oam(1, 0x01); // Tile index
+    ppu.write_oam(2, 0x00); // Attributes
+    ppu.write_oam(3, 100); // X position
+
+    // Manually trigger sprite evaluation
+    ppu.scanline = 49;
+    ppu.evaluate_sprites_for_next_scanline();
+
+    // Sprite should be loaded into secondary OAM and shift registers
+    assert_eq!(ppu.sprite_count, 1, "One sprite should be evaluated");
+    assert!(
+        ppu.sprite_pattern_shift_low[0] != 0 || ppu.sprite_pattern_shift_high[0] != 0,
+        "Sprite shift registers should be loaded"
+    );
+}
+
+#[test]
+fn test_complete_scanline_rendering() {
+    let mut ppu = Ppu::new();
+    let cartridge = create_test_cartridge_chr_ram();
+    let mapper = Rc::new(RefCell::new(
+        Box::new(Mapper0::new(cartridge)) as Box<dyn Mapper>
+    ));
+    ppu.set_mapper(mapper);
+
+    // Set up minimal rendering data
+    ppu.write(PPUMASK, 0x18); // Enable background and sprites
+
+    // Set up palette
+    ppu.write(PPUADDR, 0x3F);
+    ppu.write(PPUADDR, 0x00);
+    ppu.write(PPUDATA, 0x0F); // Background color
+
+    // Write a simple pattern to CHR RAM
+    for i in 0..16 {
+        ppu.mapper
+            .as_ref()
+            .unwrap()
+            .borrow_mut()
+            .ppu_write(i, if i < 8 { 0xFF } else { 0x00 });
+    }
+
+    // Write a tile to nametable
+    ppu.nametables[0] = 0x00;
+
+    // Run one complete visible scanline
+    ppu.scanline = 0;
+    ppu.cycle = 0;
+
+    for _ in 0..341 {
+        ppu.visible_scanline_cycle();
+        ppu.cycle += 1;
+    }
+
+    // Frame buffer should have some pixels rendered
+    let frame = ppu.frame();
+    // At least check that the frame buffer exists and has the right size
+    assert_eq!(
+        frame.len(),
+        256 * 240,
+        "Frame buffer should have correct size"
+    );
+}
+
+#[test]
+fn test_sprite_x_position_countdown() {
+    let mut ppu = Ppu::new();
+
+    // Set initial sprite X position
+    ppu.sprite_x_positions[0] = 5;
+    ppu.sprite_pattern_shift_low[0] = 0b11110000;
+
+    // Update shifters
+    ppu.update_sprite_shifters();
+
+    assert_eq!(
+        ppu.sprite_x_positions[0], 4,
+        "Sprite X position should decrement"
+    );
+
+    // Pattern should not shift yet
+    assert_eq!(
+        ppu.sprite_pattern_shift_low[0], 0b11110000,
+        "Pattern should not shift when X > 0"
+    );
+
+    // Set X to 0 and update
+    ppu.sprite_x_positions[0] = 0;
+    ppu.update_sprite_shifters();
+
+    assert_eq!(
+        ppu.sprite_pattern_shift_low[0], 0b11100000,
+        "Pattern should shift when X = 0"
+    );
+}

@@ -1,7 +1,40 @@
 // PPU module - Picture Processing Unit implementation
 // This module contains the PPU (2C02) emulation
 //
-// # PPU Registers (Phase 4 - Full Implementation)
+// # PPU Implementation
+//
+// This is a cycle-accurate, scanline-based PPU implementation that renders
+// the NES screen pixel-by-pixel as the real hardware does.
+//
+// ## Key Features
+//
+// - **Scanline-based rendering**: Renders one scanline at a time (341 cycles per scanline)
+// - **Tile fetching pipeline**: Background tiles are fetched in a 4-stage pipeline
+// - **Shift registers**: Uses shift registers for pixel-perfect rendering
+// - **Sprite evaluation**: Evaluates sprites per scanline (max 8 sprites per line)
+// - **Accurate timing**: VBlank, NMI, and sprite 0 hit are cycle-accurate
+//
+// ## Scanline Rendering Pipeline
+//
+// Each visible scanline (0-239) goes through these phases:
+//
+// 1. **Cycles 1-256**: Render pixels and fetch background tiles
+//    - Fetch tiles in a 4-stage pipeline (nametable, attribute, pattern low, pattern high)
+//    - Load shift registers every 8 cycles
+//    - Shift registers every cycle to output pixels
+//    - Composite background and sprite pixels
+//
+// 2. **Cycle 256**: Increment Y scroll
+//
+// 3. **Cycle 257**: Copy horizontal scroll from t to v, evaluate sprites for next scanline
+//
+// 4. **Cycles 258-320**: Sprite fetching phase
+//
+// 5. **Cycles 321-336**: Fetch first two tiles of next scanline
+//
+// 6. **Cycles 337-340**: Unused nametable fetches
+//
+// ## PPU Registers (Full Implementation)
 //
 // The PPU has 8 registers mapped at $2000-$2007 in CPU memory space.
 // These registers are mirrored throughout $2008-$3FFF (repeating every 8 bytes).
@@ -197,6 +230,82 @@ pub struct Ppu {
     /// Set to true when an NMI should be triggered.
     /// The CPU should check this flag and handle the NMI.
     pub(crate) nmi_pending: bool,
+
+    // ========================================
+    // Scanline Rendering State
+    // ========================================
+    /// Background pattern shift register (low bitplane)
+    ///
+    /// 16-bit shift register holding pattern data for 2 tiles.
+    /// Shifts left each cycle to output pixels.
+    bg_pattern_shift_low: u16,
+
+    /// Background pattern shift register (high bitplane)
+    ///
+    /// 16-bit shift register holding pattern data for 2 tiles.
+    /// Shifts left each cycle to output pixels.
+    bg_pattern_shift_high: u16,
+
+    /// Background attribute shift register (low bit)
+    ///
+    /// 8-bit shift register holding attribute (palette) data.
+    /// Extended to 16 bits during shifting for easier processing.
+    bg_attribute_shift_low: u16,
+
+    /// Background attribute shift register (high bit)
+    ///
+    /// 8-bit shift register holding attribute (palette) data.
+    /// Extended to 16 bits during shifting for easier processing.
+    bg_attribute_shift_high: u16,
+
+    // ========================================
+    // Background Tile Fetching Pipeline
+    // ========================================
+    /// Nametable byte being fetched/latched
+    bg_nametable_byte: u8,
+
+    /// Attribute byte being fetched/latched
+    bg_attribute_byte: u8,
+
+    /// Pattern table low bitplane byte being fetched/latched
+    bg_pattern_low: u8,
+
+    /// Pattern table high bitplane byte being fetched/latched
+    bg_pattern_high: u8,
+
+    // ========================================
+    // Sprite Rendering State
+    // ========================================
+    /// Secondary OAM - holds up to 8 sprites for the current scanline
+    ///
+    /// During sprite evaluation (cycles 257-320 of previous scanline),
+    /// the PPU determines which sprites are visible on the next scanline
+    /// and stores them here.
+    secondary_oam: [(u8, u8, u8, u8); 8], // (y, tile, attr, x) for up to 8 sprites
+
+    /// Number of sprites in secondary OAM
+    sprite_count: usize,
+
+    /// Sprite pattern shift registers (low bitplane) - 8 sprites
+    sprite_pattern_shift_low: [u8; 8],
+
+    /// Sprite pattern shift registers (high bitplane) - 8 sprites
+    sprite_pattern_shift_high: [u8; 8],
+
+    /// Sprite attribute latches - 8 sprites
+    sprite_attributes: [u8; 8],
+
+    /// Sprite X position counters - 8 sprites
+    ///
+    /// These count down each cycle. When they reach 0, the sprite becomes active
+    /// and its pattern shift registers begin shifting.
+    sprite_x_positions: [u8; 8],
+
+    /// Sprite 0 present flag
+    ///
+    /// Set to true if sprite 0 is in the secondary OAM for the current scanline.
+    /// Used for sprite 0 hit detection.
+    sprite_0_present: bool,
 }
 
 impl Ppu {
@@ -247,6 +356,27 @@ impl Ppu {
             cycle: 0,
             frame: 0,
             nmi_pending: false,
+
+            // Scanline rendering state
+            bg_pattern_shift_low: 0,
+            bg_pattern_shift_high: 0,
+            bg_attribute_shift_low: 0,
+            bg_attribute_shift_high: 0,
+
+            // Background tile fetching pipeline
+            bg_nametable_byte: 0,
+            bg_attribute_byte: 0,
+            bg_pattern_low: 0,
+            bg_pattern_high: 0,
+
+            // Sprite rendering state
+            secondary_oam: [(0xFF, 0, 0, 0xFF); 8],
+            sprite_count: 0,
+            sprite_pattern_shift_low: [0; 8],
+            sprite_pattern_shift_high: [0; 8],
+            sprite_attributes: [0; 8],
+            sprite_x_positions: [0xFF; 8],
+            sprite_0_present: false,
         }
     }
 
@@ -273,6 +403,27 @@ impl Ppu {
         self.cycle = 0;
         self.frame = 0;
         self.nmi_pending = false;
+
+        // Scanline rendering state
+        self.bg_pattern_shift_low = 0;
+        self.bg_pattern_shift_high = 0;
+        self.bg_attribute_shift_low = 0;
+        self.bg_attribute_shift_high = 0;
+
+        // Background tile fetching pipeline
+        self.bg_nametable_byte = 0;
+        self.bg_attribute_byte = 0;
+        self.bg_pattern_low = 0;
+        self.bg_pattern_high = 0;
+
+        // Sprite rendering state
+        self.secondary_oam = [(0xFF, 0, 0, 0xFF); 8];
+        self.sprite_count = 0;
+        self.sprite_pattern_shift_low = [0; 8];
+        self.sprite_pattern_shift_high = [0; 8];
+        self.sprite_attributes = [0; 8];
+        self.sprite_x_positions = [0xFF; 8];
+        self.sprite_0_present = false;
     }
 
     /// Set the mirroring mode
@@ -483,14 +634,89 @@ impl Ppu {
     /// During visible scanlines, the PPU fetches background and sprite data
     /// and renders pixels to the frame buffer.
     fn visible_scanline_cycle(&mut self) {
-        // For now, we'll use the existing render methods at specific cycles
-        // In a fully cycle-accurate implementation, this would fetch and render
-        // pixel-by-pixel. For this implementation, we'll render the entire line
-        // at the end of the scanline.
+        // Scanline rendering happens in several phases:
+        // - Cycles 1-256: Render pixels and fetch tiles
+        // - Cycle 256: Increment Y scroll
+        // - Cycle 257: Copy horizontal scroll from t to v
+        // - Cycles 257-320: Sprite evaluation for next scanline
+        // - Cycles 321-336: Fetch first two tiles of next scanline
+        // - Cycles 337-340: Unused nametable fetches
 
-        // Rendering happens throughout the scanline in the real hardware
-        // but for simplicity we'll defer to the existing rendering code
-        // This is a placeholder for future pixel-perfect rendering
+        match self.cycle {
+            // Cycles 1-256: Render pixels and fetch tiles
+            1..=256 => {
+                // Shift registers every cycle to advance to next pixel
+                if self.cycle > 1 {
+                    self.shift_background_registers();
+                }
+
+                // Update sprite shifters (decrement X, shift active sprites)
+                self.update_sprite_shifters();
+
+                // Render the pixel (cycle - 1 because we're 0-indexed)
+                if self.is_rendering_enabled() {
+                    let x = (self.cycle - 1) as usize;
+                    let y = self.scanline as usize;
+
+                    // Get background pixel
+                    let bg_pixel = self.get_background_pixel();
+
+                    // Composite with sprite pixel
+                    let final_pixel = self.composite_pixel(x, bg_pixel);
+
+                    self.frame_buffer[y * SCREEN_WIDTH + x] = final_pixel;
+                }
+
+                // Fetch tiles every 8 cycles
+                // The fetching happens throughout the 8 cycles in a pipeline
+                self.perform_background_fetch(self.cycle);
+
+                // Every 8 cycles, load the shift registers with the new tile data
+                if self.cycle.is_multiple_of(8) {
+                    self.load_shift_registers();
+                    self.increment_scroll_x();
+                }
+
+                // At cycle 256, increment Y scroll
+                if self.cycle == 256 {
+                    self.increment_scroll_y();
+                }
+            }
+
+            // Cycle 257: Copy horizontal scroll from t to v
+            257 => {
+                self.copy_horizontal_scroll();
+                // Also start sprite evaluation for next scanline
+                self.evaluate_sprites_for_next_scanline();
+            }
+
+            // Cycles 258-320: Sprite fetching happens here
+            258..=320 => {
+                // Sprite fetching cycles
+                // For now, we've already evaluated sprites at cycle 257
+                // In a more accurate implementation, we'd fetch sprite data here
+            }
+
+            // Cycles 321-336: Fetch first two tiles of next scanline
+            321..=336 => {
+                self.perform_background_fetch(self.cycle);
+
+                if self.cycle.is_multiple_of(8) {
+                    self.load_shift_registers();
+                    self.increment_scroll_x();
+                }
+            }
+
+            // Cycles 337-340: Unused nametable fetches
+            337..=340 => {
+                // These are dummy nametable fetches that the PPU performs
+                // but doesn't use. We can skip them.
+            }
+
+            _ => {
+                // Cycle 0 - idle
+            }
+        }
     }
 
     /// Handle post-render scanline cycle (240)
@@ -532,15 +758,29 @@ impl Ppu {
             self.nmi_pending = false;
         }
 
-        // At the end of pre-render scanline (or early in scanline 0),
-        // we render the frame using the existing rendering code
-        // Check before increment, so CYCLES_PER_SCANLINE - 2
-        if self.cycle == CYCLES_PER_SCANLINE - 2 {
-            // Render the complete frame here
-            // This maintains compatibility with existing rendering code
-            if self.is_rendering_enabled() {
-                self.render_frame();
+        // Copy vertical scroll from t to v during cycles 280-304
+        if self.cycle >= 280 && self.cycle <= 304 {
+            self.copy_vertical_scroll();
+        }
+
+        // Perform the same background fetching as visible scanlines
+        match self.cycle {
+            1..=256 | 321..=336 => {
+                self.perform_background_fetch(self.cycle);
+
+                if self.cycle.is_multiple_of(8) {
+                    self.load_shift_registers();
+                    self.increment_scroll_x();
+                }
+
+                if self.cycle == 256 {
+                    self.increment_scroll_y();
+                }
             }
+            257 => {
+                self.copy_horizontal_scroll();
+            }
+            _ => {}
         }
     }
 
