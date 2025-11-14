@@ -382,21 +382,6 @@ fn create_test_cartridge_chr_rom() -> Cartridge {
     }
 }
 
-/// Helper function to create a test cartridge with CHR-RAM
-fn create_test_cartridge_chr_ram() -> Cartridge {
-    let prg_rom = vec![0xAA; 16 * 1024]; // 16KB PRG-ROM
-    let chr_rom = vec![0x00; 8 * 1024]; // 8KB CHR-RAM (all zeros indicates RAM)
-
-    Cartridge {
-        prg_rom,
-        chr_rom,
-        trainer: None,
-        mapper: 0,
-        mirroring: Mirroring::Horizontal,
-        has_battery: false,
-    }
-}
-
 #[test]
 fn test_pattern_table_without_mapper() {
     let mut ppu = Ppu::new();
