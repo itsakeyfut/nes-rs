@@ -1,0 +1,28 @@
+// PPU constants
+
+/// PPU register address mask for mirroring
+///
+/// PPU registers are 8 bytes ($2000-$2007) but mirrored throughout $2000-$3FFF.
+/// Use this mask to get the actual register address: `addr & 0x2007` or `addr & 0x0007`
+pub(super) const PPU_REGISTER_MASK: u16 = 0x0007;
+
+/// Size of nametable in bytes (1KB)
+pub(super) const NAMETABLE_SIZE: usize = 1024;
+
+/// Size of palette RAM in bytes
+pub(super) const PALETTE_SIZE: usize = 32;
+
+/// Screen width in pixels
+pub(super) const SCREEN_WIDTH: usize = 256;
+
+/// Screen height in pixels
+pub(super) const SCREEN_HEIGHT: usize = 240;
+
+/// Nametable width in tiles (32 tiles)
+pub(super) const NAMETABLE_WIDTH: usize = 32;
+
+/// Nametable height in tiles (30 tiles)
+pub(super) const NAMETABLE_HEIGHT: usize = 30;
+
+/// Tile size in pixels (8x8)
+pub(super) const TILE_SIZE: usize = 8;
