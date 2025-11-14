@@ -11,6 +11,8 @@ description = "A NES emulator written in Rust"
 license = "MIT"
 
 [dependencies]
+winit = "0.30"
+pixels = "0.15"
 
 [dev-dependencies]
 
