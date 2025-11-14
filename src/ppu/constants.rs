@@ -26,3 +26,38 @@ pub(super) const NAMETABLE_HEIGHT: usize = 30;
 
 /// Tile size in pixels (8x8)
 pub(super) const TILE_SIZE: usize = 8;
+
+// ========================================
+// PPU Timing Constants (NTSC)
+// ========================================
+
+/// Number of PPU cycles per scanline
+pub(super) const CYCLES_PER_SCANLINE: u16 = 341;
+
+/// Number of scanlines per frame (NTSC)
+pub(super) const SCANLINES_PER_FRAME: u16 = 262;
+
+/// Total PPU cycles per frame (NTSC)
+/// 341 cycles/scanline × 262 scanlines = 89,342 cycles
+#[allow(dead_code)]
+pub(super) const CYCLES_PER_FRAME: u32 =
+    (CYCLES_PER_SCANLINE as u32) * (SCANLINES_PER_FRAME as u32);
+
+/// Pre-render scanline number
+/// This is scanline 261 (or -1 in some documentation)
+pub(super) const PRERENDER_SCANLINE: u16 = 261;
+
+/// First visible scanline
+pub(super) const FIRST_VISIBLE_SCANLINE: u16 = 0;
+
+/// Last visible scanline
+pub(super) const LAST_VISIBLE_SCANLINE: u16 = 239;
+
+/// Post-render scanline
+pub(super) const POSTRENDER_SCANLINE: u16 = 240;
+
+/// First VBlank scanline
+pub(super) const FIRST_VBLANK_SCANLINE: u16 = 241;
+
+/// Last VBlank scanline
+pub(super) const LAST_VBLANK_SCANLINE: u16 = 260;
