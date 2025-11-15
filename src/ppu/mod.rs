@@ -231,6 +231,14 @@ pub struct Ppu {
     /// The CPU should check this flag and handle the NMI.
     pub(crate) nmi_pending: bool,
 
+    /// Tracks if VBlank flag was just set this cycle (for race condition detection)
+    ///
+    /// This is used to handle the race condition where PPUSTATUS is read
+    /// on the same cycle that VBlank is set (scanline 241, cycle 1).
+    /// If PPUSTATUS is read on this exact cycle, the VBlank flag will be
+    /// cleared but NMI will not be generated.
+    pub(crate) vblank_just_set: bool,
+
     // ========================================
     // Scanline Rendering State
     // ========================================
@@ -356,6 +364,7 @@ impl Ppu {
             cycle: 0,
             frame: 0,
             nmi_pending: false,
+            vblank_just_set: false,
 
             // Scanline rendering state
             bg_pattern_shift_low: 0,
@@ -403,6 +412,7 @@ impl Ppu {
         self.cycle = 0;
         self.frame = 0;
         self.nmi_pending = false;
+        self.vblank_just_set = false;
 
         // Scanline rendering state
         self.bg_pattern_shift_low = 0;
@@ -578,6 +588,13 @@ impl Ppu {
     pub fn step(&mut self) -> bool {
         let mut frame_complete = false;
 
+        // Clear vblank_just_set at the start of each cycle
+        // This ensures it only lasts for one PPU cycle
+        let was_vblank_just_set = self.vblank_just_set;
+        if was_vblank_just_set {
+            self.vblank_just_set = false;
+        }
+
         // Execute current cycle based on scanline
         match self.scanline {
             FIRST_VISIBLE_SCANLINE..=LAST_VISIBLE_SCANLINE => {
@@ -731,13 +748,15 @@ impl Ppu {
     ///
     /// During VBlank, the PPU is idle and games typically update VRAM/OAM.
     fn vblank_scanline_cycle(&mut self) {
-        // Set VBlank flag at the start of scanline 241, cycle 1
-        // We check before the cycle increment in step(), so check for cycle == 0
-        // which will become cycle 1 after the increment
+        // Set VBlank flag at scanline 241, cycle 1
+        // We check for cycle == 0, which will become cycle 1 after the increment in step()
+        // This represents the transition from cycle 0 to cycle 1
         if self.scanline == FIRST_VBLANK_SCANLINE && self.cycle == 0 {
             self.ppustatus |= 0x80; // Set VBlank flag (bit 7)
+            self.vblank_just_set = true;
 
-            // Generate NMI if enabled
+            // Generate NMI if enabled (unless suppressed by race condition)
+            // The race condition check happens in PPUSTATUS read or PPUCTRL write
             if (self.ppuctrl & 0x80) != 0 {
                 self.nmi_pending = true;
             }
@@ -750,7 +769,7 @@ impl Ppu {
     /// and performing background fetches.
     fn prerender_scanline_cycle(&mut self) {
         // Clear VBlank and sprite flags at cycle 1 of pre-render scanline
-        // We check before the cycle increment, so check for cycle == 0
+        // We check for cycle == 0, which will become cycle 1 after the increment
         if self.cycle == 0 {
             self.ppustatus &= !0x80; // Clear VBlank flag (bit 7)
             self.ppustatus &= !0x40; // Clear Sprite 0 hit (bit 6)
