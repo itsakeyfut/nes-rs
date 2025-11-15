@@ -4,7 +4,7 @@
 // using the winit and pixels crates.
 
 use super::framebuffer::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::input::{ControllerIO, Player, UnifiedInputHandler};
+use crate::input::{ControllerIO, InputConfig, Player, UnifiedInputHandler};
 use pixels::{Pixels, SurfaceTexture};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -100,6 +100,31 @@ impl DisplayWindow {
             input_handler: UnifiedInputHandler::new(),
             controller_io: ControllerIO::new(),
         }
+    }
+
+    /// Create a new display window with custom input configuration
+    ///
+    /// # Arguments
+    /// * `config` - Window configuration
+    /// * `input_config` - Input configuration for keyboard and gamepad mappings
+    ///
+    /// # Returns
+    /// Result containing DisplayWindow or error message if input config is invalid
+    pub fn with_input_config(
+        config: WindowConfig,
+        input_config: &InputConfig,
+    ) -> Result<Self, String> {
+        let input_handler = UnifiedInputHandler::with_config(input_config)?;
+
+        Ok(Self {
+            window: None,
+            pixels: None,
+            config,
+            frame_buffer: FrameBuffer::new(),
+            last_frame_time: Instant::now(),
+            input_handler,
+            controller_io: ControllerIO::new(),
+        })
     }
 
     /// Get a reference to the frame buffer
@@ -276,10 +301,14 @@ impl ApplicationHandler for DisplayWindow {
 ///
 /// # Arguments
 /// * `config` - Window configuration
+/// * `input_config` - Optional input configuration for custom mappings
 ///
 /// # Returns
 /// Result indicating success or error
-pub fn run_display(config: WindowConfig) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_display(
+    config: WindowConfig,
+    input_config: Option<&InputConfig>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
 
     // Set control flow based on VSync setting
@@ -289,7 +318,12 @@ pub fn run_display(config: WindowConfig) -> Result<(), Box<dyn std::error::Error
         event_loop.set_control_flow(ControlFlow::Poll);
     }
 
-    let mut display = DisplayWindow::new(config);
+    let mut display = if let Some(input_cfg) = input_config {
+        DisplayWindow::with_input_config(config, input_cfg)
+            .map_err(|e| format!("Failed to apply input configuration: {}", e))?
+    } else {
+        DisplayWindow::new(config)
+    };
 
     // Create a test pattern for demonstration
     display.frame_buffer_mut().test_pattern();

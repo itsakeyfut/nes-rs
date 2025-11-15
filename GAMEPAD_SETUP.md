@@ -49,7 +49,7 @@ The emulator supports both keyboard and gamepad inputs simultaneously.
 
 ### Default Gamepad Mappings
 
-- D-pad/Left Stick: NES D-pad
+- D-pad: NES D-pad
 - South button (A/Cross): B button
 - East button (B/Circle): A button
 - Start: Start

@@ -222,18 +222,67 @@ impl InputConfig {
     ///
     /// # Returns
     /// InputConfig (either loaded or default)
+    ///
+    /// # Behavior
+    /// - If file doesn't exist: creates and saves default config
+    /// - If file exists but has parse errors: uses defaults in-memory without overwriting,
+    ///   allowing the user to fix the syntax error
     pub fn load_or_default<P: AsRef<Path>>(path: P) -> Self {
-        Self::load_from_file(&path).unwrap_or_else(|e| {
-            eprintln!("Could not load config ({}), using defaults", e);
+        let path_ref = path.as_ref();
+
+        // Check if file exists first
+        let file_exists = path_ref.exists();
+
+        Self::load_from_file(path_ref).unwrap_or_else(|e| {
             let config = Self::new();
-            // Try to save default config
-            if let Err(e) = config.save_to_file(&path) {
-                eprintln!("Warning: Could not save default config: {}", e);
+
+            if file_exists {
+                // File exists but failed to parse - don't overwrite
+                eprintln!("Warning: Config file exists but failed to load: {}", e);
+                eprintln!("Using default configuration in memory.");
+                eprintln!(
+                    "Please fix the syntax errors in '{}' to use custom settings.",
+                    path_ref.display()
+                );
             } else {
-                println!("Created default configuration file");
+                // File doesn't exist - create default
+                eprintln!("Config file not found, creating default configuration");
+                if let Err(save_err) = config.save_to_file(path_ref) {
+                    eprintln!("Warning: Could not save default config: {}", save_err);
+                } else {
+                    println!(
+                        "Created default configuration file at '{}'",
+                        path_ref.display()
+                    );
+                }
             }
+
             config
         })
+    }
+
+    /// Convert configuration into runtime keyboard and gamepad mappings
+    ///
+    /// # Returns
+    /// Result containing tuples of (keyboard_p1, keyboard_p2, gamepad_p1, gamepad_p2)
+    /// or error message if any mapping is invalid
+    pub fn to_runtime_mappings(
+        &self,
+    ) -> Result<
+        (
+            super::KeyboardMapping,
+            super::KeyboardMapping,
+            super::GamepadMapping,
+            super::GamepadMapping,
+        ),
+        String,
+    > {
+        let kb_p1 = self.keyboard_player1.to_keyboard_mapping()?;
+        let kb_p2 = self.keyboard_player2.to_keyboard_mapping()?;
+        let gp_p1 = self.gamepad_player1.to_gamepad_mapping()?;
+        let gp_p2 = self.gamepad_player2.to_gamepad_mapping()?;
+
+        Ok((kb_p1, kb_p2, gp_p1, gp_p2))
     }
 }
 

@@ -55,6 +55,33 @@ impl UnifiedInputHandler {
         }
     }
 
+    /// Create a unified input handler from an InputConfig
+    ///
+    /// # Arguments
+    /// * `config` - The input configuration to use
+    ///
+    /// # Returns
+    /// Result containing UnifiedInputHandler or error message if mappings are invalid
+    ///
+    /// # Example
+    /// ```
+    /// use nes_rs::input::{InputConfig, UnifiedInputHandler};
+    ///
+    /// let config = InputConfig::new();
+    /// let handler = UnifiedInputHandler::with_config(&config).unwrap();
+    /// ```
+    pub fn with_config(config: &super::InputConfig) -> Result<Self, String> {
+        let (kb_p1, kb_p2, gp_p1, gp_p2) = config.to_runtime_mappings()?;
+
+        let keyboard_handler = KeyboardHandler::with_mappings(kb_p1, kb_p2);
+        let gamepad_handler = GamepadHandler::with_mappings(gp_p1, gp_p2);
+
+        Ok(Self {
+            keyboard_handler,
+            gamepad_handler,
+        })
+    }
+
     /// Handle a keyboard key press event
     ///
     /// # Arguments
