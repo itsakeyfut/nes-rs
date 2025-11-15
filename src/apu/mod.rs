@@ -79,6 +79,13 @@ const DUTY_PATTERNS: [[u8; 8]; 4] = [
     [1, 0, 0, 1, 1, 1, 1, 1], // 75% duty cycle (inverted 25%)
 ];
 
+/// Triangle wave sequence for triangle channel
+/// 32-step sequence from 15 down to 0, then back up to 15
+const TRIANGLE_SEQUENCE: [u8; 32] = [
+    15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    13, 14, 15,
+];
+
 /// Envelope generator for controlling volume over time
 #[derive(Debug, Clone)]
 struct Envelope {
@@ -311,6 +318,62 @@ impl Timer {
     }
 }
 
+/// Linear counter for the triangle channel
+/// The linear counter gates the length counter and provides an additional
+/// mechanism for controlling note duration
+#[derive(Debug, Clone)]
+struct LinearCounter {
+    /// Counter value
+    counter: u8,
+    /// Reload value (from register bits 6-0)
+    reload_value: u8,
+    /// Control flag (from register bit 7)
+    /// When set, the linear counter is reloaded every clock
+    control_flag: bool,
+    /// Reload flag - set when register 3 is written
+    reload_flag: bool,
+}
+
+impl LinearCounter {
+    fn new() -> Self {
+        Self {
+            counter: 0,
+            reload_value: 0,
+            control_flag: false,
+            reload_flag: false,
+        }
+    }
+
+    /// Clock the linear counter (called by frame sequencer quarter frame)
+    fn clock(&mut self) {
+        if self.reload_flag {
+            self.counter = self.reload_value;
+        } else if self.counter > 0 {
+            self.counter -= 1;
+        }
+
+        if !self.control_flag {
+            self.reload_flag = false;
+        }
+    }
+
+    /// Check if the linear counter is non-zero
+    fn is_active(&self) -> bool {
+        self.counter > 0
+    }
+
+    /// Write to the linear counter control register
+    fn write_control(&mut self, data: u8) {
+        self.control_flag = (data & 0x80) != 0;
+        self.reload_value = data & 0x7F;
+    }
+
+    /// Set the reload flag (when register 3 is written)
+    fn set_reload_flag(&mut self) {
+        self.reload_flag = true;
+    }
+}
+
 /// Pulse wave channel (used for both Pulse 1 and Pulse 2)
 #[derive(Debug, Clone)]
 struct PulseChannel {
@@ -439,13 +502,134 @@ impl PulseChannel {
 }
 
 // ============================================================================
+// Triangle Channel Implementation
+// ============================================================================
+
+/// Triangle wave channel for bass and melody sounds
+#[derive(Debug, Clone)]
+struct TriangleChannel {
+    /// Enabled flag (from $4015)
+    enabled: bool,
+    /// Linear counter
+    linear_counter: LinearCounter,
+    /// Length counter
+    length_counter: LengthCounter,
+    /// Timer
+    timer: Timer,
+    /// Sequencer position (0-31)
+    sequence_position: u8,
+}
+
+impl TriangleChannel {
+    /// Create a new triangle channel
+    fn new() -> Self {
+        Self {
+            enabled: false,
+            linear_counter: LinearCounter::new(),
+            length_counter: LengthCounter::new(),
+            timer: Timer::new(),
+            sequence_position: 0,
+        }
+    }
+
+    /// Write to register 0 ($4008 - linear counter setup)
+    fn write_register_0(&mut self, data: u8) {
+        // Bit 7: Control flag (also doubles as length counter halt)
+        self.length_counter.set_halt((data & 0x80) != 0);
+        self.linear_counter.write_control(data);
+    }
+
+    /// Write to register 1 ($4009 - unused)
+    fn write_register_1(&mut self, _data: u8) {
+        // Unused register, do nothing
+    }
+
+    /// Write to register 2 ($400A - timer low byte)
+    fn write_register_2(&mut self, data: u8) {
+        let high = (self.timer.period >> 8) as u8;
+        self.timer.set_period(data, high);
+    }
+
+    /// Write to register 3 ($400B - length counter load and timer high)
+    fn write_register_3(&mut self, data: u8) {
+        let low = self.timer.period as u8;
+        self.timer.set_period(low, data & 0x07);
+
+        // Load length counter if channel is enabled
+        if self.enabled {
+            self.length_counter.load(data >> 3);
+        }
+
+        // Set linear counter reload flag
+        self.linear_counter.set_reload_flag();
+    }
+
+    /// Set the enabled flag (from $4015)
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        if !enabled {
+            self.length_counter.counter = 0;
+        }
+    }
+
+    /// Check if the channel is enabled and producing sound
+    /// Triangle channel requires both linear counter and length counter to be active
+    #[cfg(test)]
+    fn is_active(&self) -> bool {
+        self.enabled && self.linear_counter.is_active() && self.length_counter.is_active()
+    }
+
+    /// Clock the timer and update sequence position
+    fn clock_timer(&mut self) {
+        // Triangle channel only advances sequencer when both counters are non-zero
+        if self.linear_counter.is_active() && self.length_counter.is_active() && self.timer.clock()
+        {
+            self.sequence_position = (self.sequence_position + 1) % 32;
+        }
+    }
+
+    /// Clock the linear counter (called by frame sequencer quarter frame)
+    fn clock_linear_counter(&mut self) {
+        self.linear_counter.clock();
+    }
+
+    /// Clock the length counter (called by frame sequencer half frame)
+    fn clock_length_counter(&mut self) {
+        self.length_counter.clock();
+    }
+
+    /// Get the current output sample (0-15)
+    /// Implements ultrasonic silencing (mute if timer period < 2)
+    fn output(&self) -> u8 {
+        // Check if channel should be muted
+        if !self.enabled {
+            return 0;
+        }
+
+        // Check if either counter is zero
+        if !self.linear_counter.is_active() || !self.length_counter.is_active() {
+            return 0;
+        }
+
+        // Ultrasonic silencing: mute if timer period < 2
+        // This prevents clicking at very high frequencies
+        if self.timer.period < 2 {
+            return 0;
+        }
+
+        // Return current position in triangle sequence
+        TRIANGLE_SEQUENCE[self.sequence_position as usize]
+    }
+}
+
+// ============================================================================
 // APU Main Structure
 // ============================================================================
 
 /// APU structure representing the Audio Processing Unit state
 ///
-/// Phase 7 implementation with full pulse channel support.
-/// Triangle, Noise, and DMC channels remain as stubs for future implementation.
+/// Phase 7 implementation with full pulse and triangle channel support.
+/// Noise and DMC channels remain as stubs for future implementation.
 pub struct Apu {
     // ========================================
     // Pulse Channels (Phase 7 - Implemented)
@@ -457,19 +641,10 @@ pub struct Apu {
     pulse2: PulseChannel,
 
     // ========================================
-    // Triangle Registers ($4008-$400B)
+    // Triangle Channel (Phase 7 - Implemented)
     // ========================================
-    /// $4008: Triangle - Linear counter
-    triangle_linear_counter: u8,
-
-    /// $4009: Triangle - Unused
-    triangle_unused: u8,
-
-    /// $400A: Triangle - Timer low byte
-    triangle_timer_low: u8,
-
-    /// $400B: Triangle - Length counter and timer high bits
-    triangle_length_timer_high: u8,
+    /// Triangle channel
+    triangle: TriangleChannel,
 
     // ========================================
     // Noise Registers ($400C-$400F)
@@ -536,11 +711,8 @@ impl Apu {
             pulse1: PulseChannel::new(1),
             pulse2: PulseChannel::new(2),
 
-            // Triangle
-            triangle_linear_counter: 0x00,
-            triangle_unused: 0x00,
-            triangle_timer_low: 0x00,
-            triangle_length_timer_high: 0x00,
+            // Triangle channel (Phase 7 - Implemented)
+            triangle: TriangleChannel::new(),
 
             // Noise
             noise_envelope: 0x00,
@@ -572,13 +744,14 @@ impl Apu {
     ///
     /// The APU runs at half the CPU clock speed, so this should be called
     /// every other CPU cycle, or the internal logic should handle the division.
-    /// For now, this clocks the pulse channel timers directly.
+    /// For now, this clocks the pulse and triangle channel timers directly.
     pub fn clock(&mut self) {
         // The APU runs at half CPU speed (approximately 1.789773 MHz)
         // For accurate emulation, timer should be clocked every other CPU cycle
         // For now, we'll clock every call
         self.pulse1.clock_timer();
         self.pulse2.clock_timer();
+        self.triangle.clock_timer();
     }
 
     /// Clock the frame sequencer quarter frame
@@ -587,25 +760,28 @@ impl Apu {
     /// - 4-step mode: Steps at 3728.5, 7456.5, 11185.5, 14914.5 CPU cycles
     /// - 5-step mode: Steps at 3728.5, 7456.5, 11185.5, 18640.5 CPU cycles
     ///
-    /// Quarter frame clocks the envelope
+    /// Quarter frame clocks the envelope and linear counter
     pub fn clock_quarter_frame(&mut self) {
         self.pulse1.clock_envelope();
         self.pulse2.clock_envelope();
+        self.triangle.clock_linear_counter();
     }
 
     /// Clock the frame sequencer half frame
     ///
     /// Half frame clocks both the envelope and length counter/sweep
     pub fn clock_half_frame(&mut self) {
-        // Clock envelope (quarter frame)
+        // Clock envelope and linear counter (quarter frame)
         self.pulse1.clock_envelope();
         self.pulse2.clock_envelope();
+        self.triangle.clock_linear_counter();
 
         // Clock length counter and sweep (half frame only)
         self.pulse1.clock_length_counter();
         self.pulse1.clock_sweep();
         self.pulse2.clock_length_counter();
         self.pulse2.clock_sweep();
+        self.triangle.clock_length_counter();
     }
 
     /// Get the mixed output sample from all channels
@@ -632,6 +808,11 @@ impl Apu {
     /// Get the output from pulse channel 2
     pub fn pulse2_output(&self) -> u8 {
         self.pulse2.output()
+    }
+
+    /// Get the output from triangle channel
+    pub fn triangle_output(&self) -> u8 {
+        self.triangle.output()
     }
 
     /// Read from an APU register
@@ -685,7 +866,10 @@ impl Apu {
                 if self.pulse2.length_counter.is_active() {
                     status |= 0x02;
                 }
-                // Triangle, Noise, DMC not implemented yet (bits 2-4)
+                if self.triangle.length_counter.is_active() {
+                    status |= 0x04;
+                }
+                // Noise, DMC not implemented yet (bits 3-4)
                 // Frame interrupt and DMC interrupt flags not implemented (bits 6-7)
                 status
             }
@@ -726,10 +910,10 @@ impl Apu {
             0x4007 => self.pulse2.write_register_3(data),
 
             // Triangle ($4008-$400B)
-            0x4008 => self.triangle_linear_counter = data,
-            0x4009 => self.triangle_unused = data,
-            0x400A => self.triangle_timer_low = data,
-            0x400B => self.triangle_length_timer_high = data,
+            0x4008 => self.triangle.write_register_0(data),
+            0x4009 => self.triangle.write_register_1(data),
+            0x400A => self.triangle.write_register_2(data),
+            0x400B => self.triangle.write_register_3(data),
 
             // Noise ($400C-$400F)
             0x400C => self.noise_envelope = data,
@@ -756,7 +940,8 @@ impl Apu {
                 self.status_control = data;
                 self.pulse1.set_enabled((data & 0x01) != 0);
                 self.pulse2.set_enabled((data & 0x02) != 0);
-                // Triangle, Noise, DMC not implemented yet (bits 2-4)
+                self.triangle.set_enabled((data & 0x04) != 0);
+                // Noise, DMC not implemented yet (bits 3-4)
             }
 
             // $4016: Controller 1 - Not part of APU, handled separately
@@ -820,8 +1005,11 @@ mod tests {
         // Verify sweep units were created with correct channel numbers
         assert_eq!(apu.pulse1.sweep.channel, 1);
         assert_eq!(apu.pulse2.sweep.channel, 2);
+        // Triangle channel should be initialized
+        assert!(!apu.triangle.enabled);
+        assert_eq!(apu.triangle.linear_counter.counter, 0);
+        assert_eq!(apu.triangle.length_counter.counter, 0);
         // Other channels (stub registers)
-        assert_eq!(apu.triangle_linear_counter, 0x00);
         assert_eq!(apu.noise_envelope, 0x00);
         assert_eq!(apu.dmc_flags_rate, 0x00);
         assert_eq!(apu.status_control, 0x00);
@@ -940,15 +1128,24 @@ mod tests {
     #[test]
     fn test_write_triangle_registers() {
         let mut apu = Apu::new();
-        apu.write(0x4008, 0x81);
-        apu.write(0x4009, 0x00);
-        apu.write(0x400A, 0xDD);
-        apu.write(0x400B, 0x18);
 
-        assert_eq!(apu.triangle_linear_counter, 0x81);
-        assert_eq!(apu.triangle_unused, 0x00);
-        assert_eq!(apu.triangle_timer_low, 0xDD);
-        assert_eq!(apu.triangle_length_timer_high, 0x18);
+        // Enable triangle channel first
+        apu.write(0x4015, 0x04);
+
+        apu.write(0x4008, 0x81); // Control flag set, reload value = 1
+        apu.write(0x4009, 0x00); // Unused
+        apu.write(0x400A, 0xDD); // Timer low
+        apu.write(0x400B, 0x18); // Length counter index=3, timer high=0
+
+        // Verify linear counter settings
+        assert!(apu.triangle.linear_counter.control_flag);
+        assert_eq!(apu.triangle.linear_counter.reload_value, 0x01);
+
+        // Verify timer period
+        assert_eq!(apu.triangle.timer.period, 0x0DD);
+
+        // Verify channel is enabled
+        assert!(apu.triangle.enabled);
     }
 
     #[test]
@@ -1126,8 +1323,10 @@ mod tests {
         assert_eq!(apu.pulse1.duty, 0); // 0x01 >> 6 = 0
         assert_eq!(apu.pulse2.duty, 0); // 0x02 >> 6 = 0
 
+        // Verify triangle channel (implemented)
+        assert_eq!(apu.triangle.linear_counter.reload_value, 0x03);
+
         // Verify other channels (stub registers)
-        assert_eq!(apu.triangle_linear_counter, 0x03);
         assert_eq!(apu.noise_envelope, 0x04);
         assert_eq!(apu.dmc_flags_rate, 0x05);
     }
@@ -1403,5 +1602,415 @@ mod tests {
         // Pulse 2: 0x100 - 0x80 = 0x80
         assert_eq!(target1, 0x7F);
         assert_eq!(target2, 0x80);
+    }
+
+    // ========================================
+    // Triangle Channel Functionality Tests
+    // ========================================
+
+    #[test]
+    fn test_triangle_linear_counter_setup() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure linear counter with reload value = 42
+        apu.write(0x4008, 0x2A); // Control flag = 0, reload value = 42
+
+        assert_eq!(apu.triangle.linear_counter.reload_value, 42);
+        assert!(!apu.triangle.linear_counter.control_flag);
+    }
+
+    #[test]
+    fn test_triangle_linear_counter_control_flag() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure with control flag set
+        apu.write(0x4008, 0x80); // Control flag = 1, reload value = 0
+
+        assert!(apu.triangle.linear_counter.control_flag);
+        assert!(apu.triangle.length_counter.halt); // Control flag doubles as length counter halt
+    }
+
+    #[test]
+    fn test_triangle_linear_counter_reload() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure linear counter with reload value = 10
+        apu.write(0x4008, 0x0A);
+        apu.write(0x400B, 0x08); // This sets the reload flag
+
+        // Reload flag should be set
+        assert!(apu.triangle.linear_counter.reload_flag);
+
+        // Clock linear counter - should reload to 10
+        apu.clock_quarter_frame();
+
+        assert_eq!(apu.triangle.linear_counter.counter, 10);
+        // Reload flag should be cleared because control flag is 0
+        assert!(!apu.triangle.linear_counter.reload_flag);
+    }
+
+    #[test]
+    fn test_triangle_linear_counter_countdown() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure linear counter with reload value = 5
+        apu.write(0x4008, 0x05);
+        apu.write(0x400B, 0x08); // Set reload flag
+
+        // Clock once to reload
+        apu.clock_quarter_frame();
+        assert_eq!(apu.triangle.linear_counter.counter, 5);
+
+        // Clock again - should decrement
+        apu.clock_quarter_frame();
+        assert_eq!(apu.triangle.linear_counter.counter, 4);
+
+        // Clock again - should decrement
+        apu.clock_quarter_frame();
+        assert_eq!(apu.triangle.linear_counter.counter, 3);
+    }
+
+    #[test]
+    fn test_triangle_linear_counter_with_control_flag() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure with control flag set (reload flag never clears)
+        apu.write(0x4008, 0x85); // Control = 1, reload value = 5
+        apu.write(0x400B, 0x08); // Set reload flag
+
+        // Clock - should reload to 5
+        apu.clock_quarter_frame();
+        assert_eq!(apu.triangle.linear_counter.counter, 5);
+
+        // Clock again - should still reload to 5 because control flag keeps reload flag set
+        apu.clock_quarter_frame();
+        assert_eq!(apu.triangle.linear_counter.counter, 5);
+    }
+
+    #[test]
+    fn test_triangle_length_counter() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure without halt flag
+        apu.write(0x4008, 0x00); // Control flag = 0
+        apu.write(0x400B, 0x08); // Length counter index = 1
+
+        assert!(apu.triangle.length_counter.counter > 0);
+        let initial_count = apu.triangle.length_counter.counter;
+
+        // Clock length counter
+        apu.clock_half_frame();
+
+        // Counter should have decreased
+        assert_eq!(apu.triangle.length_counter.counter, initial_count - 1);
+    }
+
+    #[test]
+    fn test_triangle_length_counter_halt() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure with halt flag (control flag)
+        apu.write(0x4008, 0x80); // Control flag = 1 (also sets halt)
+        apu.write(0x400B, 0x08); // Length counter index = 1
+
+        let initial_count = apu.triangle.length_counter.counter;
+
+        // Clock length counter
+        apu.clock_half_frame();
+
+        // Counter should NOT have decreased due to halt
+        assert_eq!(apu.triangle.length_counter.counter, initial_count);
+    }
+
+    #[test]
+    fn test_triangle_wave_output() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure triangle: control flag set, reload value = 127
+        apu.write(0x4008, 0xFF); // Maximum linear counter
+        apu.write(0x400A, 0x64); // Timer low = 100
+        apu.write(0x400B, 0x08); // Load length counter
+
+        // Clock quarter frame to reload linear counter
+        apu.clock_quarter_frame();
+
+        // Triangle should be active
+        assert!(apu.triangle.is_active());
+
+        // Output should be in range 0-15
+        let output = apu.triangle_output();
+        assert!(output <= 15);
+
+        // Initial position should be 0, so output should be 15
+        assert_eq!(output, 15);
+    }
+
+    #[test]
+    fn test_triangle_wave_sequence() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure triangle with control flag set (continuous reload)
+        apu.write(0x4008, 0xFF);
+        apu.write(0x400A, 0x10); // Timer period = 16 (not 0, to avoid ultrasonic)
+        apu.write(0x400B, 0xF8); // Load length counter with max value
+
+        // Need to clock quarter frame to reload linear counter
+        apu.clock_quarter_frame();
+
+        // Triangle should be active
+        assert!(apu.triangle.is_active());
+
+        // Clock the timer enough times to advance through the sequence
+        // Each timer period is 16, so we need to clock 32 * 17 times to see full sequence
+        let mut outputs = Vec::new();
+        for _ in 0..32 {
+            outputs.push(apu.triangle_output());
+            // Clock enough to advance sequencer once
+            for _ in 0..17 {
+                apu.clock();
+            }
+        }
+
+        // Should follow triangle sequence: 15,14,13,...,0,0,1,...,15
+        assert_eq!(outputs[0], 15);
+        assert_eq!(outputs[15], 0);
+        assert_eq!(outputs[16], 0);
+        assert_eq!(outputs[31], 15);
+    }
+
+    #[test]
+    fn test_triangle_ultrasonic_silencing() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure with period < 2 (should be muted)
+        apu.write(0x4008, 0xFF); // Linear counter max
+        apu.write(0x400A, 0x01); // Timer period = 1
+        apu.write(0x400B, 0xF8); // Length counter max
+
+        // Clock quarter frame to reload linear counter
+        apu.clock_quarter_frame();
+
+        // Should be active but muted due to ultrasonic silencing
+        assert!(apu.triangle.linear_counter.is_active());
+        assert!(apu.triangle.length_counter.is_active());
+        assert_eq!(apu.triangle_output(), 0); // Muted due to period < 2
+    }
+
+    #[test]
+    fn test_triangle_ultrasonic_threshold() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure with period = 2 (just above threshold, should NOT be muted)
+        apu.write(0x4008, 0xFF);
+        apu.write(0x400A, 0x02); // Timer period = 2
+        apu.write(0x400B, 0xF8);
+
+        // Clock quarter frame to reload linear counter
+        apu.clock_quarter_frame();
+
+        // Should be active and NOT muted
+        assert!(apu.triangle.is_active());
+        assert_eq!(apu.triangle_output(), 15); // Not muted
+    }
+
+    #[test]
+    fn test_triangle_requires_both_counters() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure with linear counter = 0
+        apu.write(0x4008, 0x00); // Reload value = 0
+        apu.write(0x400A, 0x10);
+        apu.write(0x400B, 0xF8); // Length counter loaded
+
+        // Clock quarter frame to reload linear counter to 0
+        apu.clock_quarter_frame();
+
+        // Linear counter is 0, so output should be 0
+        assert!(!apu.triangle.linear_counter.is_active());
+        assert_eq!(apu.triangle_output(), 0);
+    }
+
+    #[test]
+    fn test_triangle_sequencer_only_clocks_when_both_counters_active() {
+        let mut apu = Apu::new();
+
+        // Enable triangle channel
+        apu.write(0x4015, 0x04);
+
+        // Configure triangle
+        apu.write(0x4008, 0x05); // Linear counter reload = 5
+        apu.write(0x400A, 0x00); // Timer period = 0
+        apu.write(0x400B, 0xF8); // Length counter max
+
+        // Clock to reload linear counter
+        apu.clock_quarter_frame();
+
+        let initial_position = apu.triangle.sequence_position;
+
+        // Linear counter is active, length counter is active, so sequencer should advance
+        apu.clock();
+        assert_ne!(apu.triangle.sequence_position, initial_position);
+
+        // Now drain linear counter to 0
+        for _ in 0..6 {
+            apu.clock_quarter_frame();
+        }
+
+        // Linear counter should be 0
+        assert!(!apu.triangle.linear_counter.is_active());
+
+        // Save current position
+        let position_before = apu.triangle.sequence_position;
+
+        // Clock timer - sequencer should NOT advance
+        apu.clock();
+        assert_eq!(apu.triangle.sequence_position, position_before);
+    }
+
+    #[test]
+    fn test_triangle_status_register() {
+        let mut apu = Apu::new();
+
+        // Initially, no channels active
+        assert_eq!(apu.read(0x4015) & 0x04, 0x00);
+
+        // Enable triangle and load length counter
+        apu.write(0x4015, 0x04);
+        apu.write(0x4008, 0x80);
+        apu.write(0x400B, 0x08);
+
+        // Status should show triangle active (bit 2)
+        assert_eq!(apu.read(0x4015) & 0x04, 0x04);
+    }
+
+    #[test]
+    fn test_triangle_disable_clears_length_counter() {
+        let mut apu = Apu::new();
+
+        // Enable and configure triangle
+        apu.write(0x4015, 0x04);
+        apu.write(0x4008, 0x80);
+        apu.write(0x400B, 0x08);
+
+        assert!(apu.triangle.length_counter.counter > 0);
+
+        // Disable triangle
+        apu.write(0x4015, 0x00);
+
+        // Length counter should be cleared
+        assert_eq!(apu.triangle.length_counter.counter, 0);
+        assert!(!apu.triangle.is_active());
+    }
+
+    #[test]
+    fn test_triangle_with_pulse_channels() {
+        let mut apu = Apu::new();
+
+        // Enable all channels
+        apu.write(0x4015, 0x07);
+
+        // Configure pulse 1
+        apu.write(0x4000, 0x3F); // Constant volume = 15
+        apu.write(0x4003, 0x08);
+
+        // Configure pulse 2
+        apu.write(0x4004, 0x38); // Constant volume = 8
+        apu.write(0x4007, 0x08);
+
+        // Configure triangle
+        apu.write(0x4008, 0xFF);
+        apu.write(0x400A, 0x10);
+        apu.write(0x400B, 0xF8);
+
+        // Clock quarter frame to activate triangle
+        apu.clock_quarter_frame();
+
+        // All should produce output
+        assert!(apu.pulse1_output() <= 15);
+        assert!(apu.pulse2_output() <= 8);
+        assert!(apu.triangle_output() <= 15);
+
+        // Status register should show all three active
+        assert_eq!(apu.read(0x4015) & 0x07, 0x07);
+    }
+
+    #[test]
+    fn test_triangle_timer_period() {
+        let mut apu = Apu::new();
+
+        // Enable triangle
+        apu.write(0x4015, 0x04);
+
+        // Set timer period using low and high bytes
+        apu.write(0x400A, 0xAB); // Low byte
+        apu.write(0x400B, 0x05); // High byte (bits 2-0) = 5
+
+        // Period should be (5 << 8) | 0xAB = 0x5AB
+        assert_eq!(apu.triangle.timer.period, 0x5AB);
+    }
+
+    #[test]
+    fn test_triangle_no_envelope() {
+        let mut apu = Apu::new();
+
+        // Enable triangle
+        apu.write(0x4015, 0x04);
+
+        // Configure triangle
+        apu.write(0x4008, 0xFF);
+        apu.write(0x400A, 0x10);
+        apu.write(0x400B, 0xF8);
+
+        // Clock to activate
+        apu.clock_quarter_frame();
+
+        // Triangle has no envelope - output is always the sequence value (0-15)
+        // Never affected by volume settings
+        let output = apu.triangle_output();
+        assert!(output <= 15);
+
+        // Clock many frames - output value depends only on sequence position, not time
+        for _ in 0..100 {
+            apu.clock_quarter_frame();
+        }
+
+        let output_after = apu.triangle_output();
+        assert!(output_after <= 15);
     }
 }
