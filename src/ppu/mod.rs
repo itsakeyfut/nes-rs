@@ -239,12 +239,6 @@ pub struct Ppu {
     /// cleared but NMI will not be generated.
     pub(crate) vblank_just_set: bool,
 
-    /// Previous value of PPUCTRL NMI enable bit (bit 7)
-    ///
-    /// Used to detect changes to the NMI enable bit for proper
-    /// NMI suppression handling.
-    pub(crate) prev_nmi_enable: bool,
-
     // ========================================
     // Scanline Rendering State
     // ========================================
@@ -371,7 +365,6 @@ impl Ppu {
             frame: 0,
             nmi_pending: false,
             vblank_just_set: false,
-            prev_nmi_enable: false,
 
             // Scanline rendering state
             bg_pattern_shift_low: 0,
@@ -420,7 +413,6 @@ impl Ppu {
         self.frame = 0;
         self.nmi_pending = false;
         self.vblank_just_set = false;
-        self.prev_nmi_enable = false;
 
         // Scanline rendering state
         self.bg_pattern_shift_low = 0;

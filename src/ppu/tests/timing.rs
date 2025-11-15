@@ -462,7 +462,6 @@ fn test_vblank_flag_cleared_exactly_on_prerender_cycle_1() {
 
     // Advance to VBlank and verify flag is set
     advance_to_scanline_cycle(&mut ppu, 241, 1);
-    ppu.step();
     assert_eq!(ppu.ppustatus & 0x80, 0x80, "VBlank flag should be set");
 
     // Advance to pre-render scanline, cycle 0
@@ -659,7 +658,6 @@ fn test_vblank_timing_across_frames() {
 
     // First frame - check VBlank is set
     advance_to_scanline_cycle(&mut ppu, 241, 1);
-    ppu.step();
     assert_eq!(
         ppu.ppustatus & 0x80,
         0x80,
@@ -680,7 +678,6 @@ fn test_vblank_timing_across_frames() {
 
     // Advance to VBlank in second frame
     advance_to_scanline_cycle(&mut ppu, 241, 1);
-    ppu.step();
 
     // VBlank should be set again
     assert_eq!(
@@ -699,7 +696,6 @@ fn test_sprite_flags_cleared_on_prerender() {
 
     // Advance to pre-render scanline
     advance_to_scanline_cycle(&mut ppu, 261, 1);
-    ppu.step();
 
     // Both flags should be cleared
     assert_eq!(
@@ -727,7 +723,6 @@ fn test_nmi_cleared_on_prerender() {
 
     // Advance to pre-render scanline
     advance_to_scanline_cycle(&mut ppu, 261, 1);
-    ppu.step();
 
     // NMI should be cleared
     assert!(

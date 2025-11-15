@@ -145,8 +145,6 @@ impl Ppu {
                     // Disabling NMI - suppress any pending NMI
                     self.nmi_pending = false;
                 }
-
-                self.prev_nmi_enable = new_nmi_enable;
             }
             1 => {
                 // $2001: PPUMASK - Write only
