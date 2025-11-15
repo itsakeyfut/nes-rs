@@ -2,12 +2,12 @@
 //
 // This module contains controller input processing for the NES standard controller.
 //
-// # Controller I/O Registers (Phase 2 - Stub Implementation)
+// # Controller I/O Registers
 //
 // The NES has two controller ports mapped to CPU memory at $4016 and $4017.
 //
-// This is a stub implementation for Phase 2. Full controller functionality will be
-// implemented in Phase 6.
+// This is a complete implementation of the NES standard controller with support for
+// strobe-based button state reading.
 //
 // ## Register Map
 //
@@ -117,8 +117,8 @@ impl Default for Controller {
 /// This structure manages the state of both NES controllers and handles
 /// the serial reading protocol.
 ///
-/// This is a Phase 2 stub implementation. Button states are always unpressed.
-/// Full controller input will be implemented in Phase 6.
+/// Supports the standard NES controller strobe and serial read mechanism.
+/// Button states can be updated via set_controller1 and set_controller2 methods.
 pub struct ControllerIO {
     /// Controller 1 state
     controller1: Controller,
@@ -277,7 +277,7 @@ impl ControllerIO {
 
     /// Update controller 1 state
     ///
-    /// This method will be used in Phase 6 to update button states from input events.
+    /// Used to update button states from input events (e.g., keyboard, gamepad).
     ///
     /// # Arguments
     ///
@@ -288,7 +288,7 @@ impl ControllerIO {
 
     /// Update controller 2 state
     ///
-    /// This method will be used in Phase 6 to update button states from input events.
+    /// Used to update button states from input events (e.g., keyboard, gamepad).
     ///
     /// # Arguments
     ///
