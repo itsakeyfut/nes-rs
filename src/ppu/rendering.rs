@@ -805,6 +805,26 @@ impl Ppu {
     /// in secondary OAM.
     ///
     /// This also sets the sprite overflow flag if more than 8 sprites are found.
+    ///
+    /// # Hardware Bug Emulation
+    ///
+    /// The real NES PPU has a hardware bug in sprite overflow detection:
+    /// - When checking sprites 9-64 for overflow, if a sprite is found on the
+    ///   scanline, the hardware incorrectly increments both the sprite index
+    ///   AND the byte offset within the sprite data
+    /// - This causes it to read the wrong bytes (e.g., tile index, attributes,
+    ///   or X position instead of Y position) for subsequent sprite checks
+    /// - This can result in:
+    ///   * False positives (overflow flag set when <= 8 sprites)
+    ///   * False negatives (overflow flag not set when > 8 sprites)
+    ///
+    /// Current implementation: Simplified correct behavior
+    /// The bug is documented here but not fully emulated, as it's complex and
+    /// very few games rely on the exact bug behavior. Most games only care
+    /// whether the flag is set at all, not the exact conditions.
+    ///
+    /// For full accuracy, the evaluation should happen cycle-by-cycle during
+    /// dots 65-256 of the visible scanline, with the buggy increment behavior.
     pub(super) fn evaluate_sprites_for_next_scanline(&mut self) {
         // The next scanline is the current scanline + 1
         let next_scanline = self.scanline + 1;
@@ -823,6 +843,7 @@ impl Ppu {
         self.sprite_0_present = false;
 
         // Scan through all 64 sprites in OAM
+        // In reality, this happens during cycles 65-256 of the scanline
         for i in 0..64 {
             let base = i * 4;
             let sprite_y = self.oam[base] as u16 + 1; // Y position is top - 1
@@ -846,7 +867,14 @@ impl Ppu {
                     count += 1;
                 } else {
                     // More than 8 sprites on this scanline - set overflow flag
+                    // In the real hardware, the bug can cause this to be set/unset incorrectly
                     overflow = true;
+
+                    // Note: The hardware bug means we might not detect overflow correctly
+                    // after the 8th sprite due to incorrect byte reading.
+                    // For now, we use simplified correct behavior.
+                    // To fully emulate the bug, we would need to continue scanning with
+                    // the buggy increment pattern instead of breaking here.
                     break;
                 }
             }
@@ -855,6 +883,8 @@ impl Ppu {
         self.sprite_count = count;
 
         // Update sprite overflow flag
+        // Edge case: The flag is set if overflow occurred, but can also be
+        // affected by the hardware bug in the real PPU
         if overflow {
             self.ppustatus |= 0x20;
         } else {
@@ -1022,15 +1052,25 @@ impl Ppu {
 
             // Check for sprite 0 hit
             // Sprite 0 hit occurs when:
-            // - Sprite 0 is being rendered
-            // - A non-transparent sprite pixel overlaps a non-transparent background pixel
-            // - X coordinate is not 255
-            // - Rendering is enabled for both sprites and background
-            // - Left-edge clipping: only occurs in X < 8 if both sprite and background
-            //   left-edge clipping are disabled (bits 1 and 2 of PPUMASK both set)
+            // 1. Sprite 0 is being rendered (is_sprite_0 = true)
+            // 2. A non-transparent sprite pixel (color_index != 0) overlaps
+            //    a non-transparent background pixel (bg_color_index != 0)
+            // 3. X coordinate is not 255 (rightmost pixel doesn't trigger hit)
+            // 4. Rendering is enabled for BOTH sprites AND background
+            //    (bits 3 and 4 of PPUMASK must both be set)
+            // 5. Left-edge clipping: hit occurs in leftmost 8 pixels (x < 8)
+            //    only if BOTH sprite and background left-edge rendering are enabled
+            //    (bits 1 and 2 of PPUMASK both set)
+            // 6. Must be during visible scanlines (0-239), not pre-render (261)
+            //
+            // Edge cases handled:
+            // - Sprite 0 hit flag is set at the exact cycle the hit occurs
+            // - Once set, the flag persists until cleared (reading PPUSTATUS
+            //   doesn't clear it; only the pre-render scanline clears it)
+            // - If either rendering is disabled, no hit can occur
             if is_sprite_0
                 && x != 255
-                && (self.ppumask & 0x08) != 0
+                && (self.ppumask & 0x18) == 0x18 // Both sprite and background rendering enabled
                 && (x >= 8 || (self.ppumask & 0x06) == 0x06)
             {
                 // Check if background pixel is non-transparent
@@ -1039,6 +1079,7 @@ impl Ppu {
 
                 if !bg_is_transparent {
                     // Set sprite 0 hit flag
+                    // This flag persists until cleared by the pre-render scanline
                     self.ppustatus |= 0x40;
                 }
             }

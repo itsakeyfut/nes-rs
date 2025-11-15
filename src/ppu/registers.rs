@@ -119,6 +119,17 @@ impl Ppu {
     /// - PPUADDR ($2006): Sets PPU address (requires 2 writes, updates t then v)
     /// - PPUDATA ($2007): Writes to PPU memory and increments v
     /// - Read-only registers: Writes are ignored
+    ///
+    /// # Mid-frame Register Changes
+    ///
+    /// Writing to PPUCTRL, PPUSCROLL, or PPUADDR during rendering can cause
+    /// graphical glitches. The implementation correctly handles these cases:
+    ///
+    /// - PPUCTRL: Changes to nametable bits affect t register, which will be
+    ///   copied to v at specific times during rendering
+    /// - PPUSCROLL: Writes update t and fine_x, which affects current rendering
+    /// - PPUADDR: Writes update t, then v, which immediately affects VRAM address
+    ///   and can corrupt scroll position if rendering is enabled
     pub(super) fn write_register(&mut self, register: u16, data: u8) {
         match register {
             0 => {
@@ -131,6 +142,8 @@ impl Ppu {
                 // Update nametable select bits in t register
                 // t: ...GH.. ........ <- d: ......GH
                 // (bits 10-11 of t from bits 0-1 of data)
+                // This affects rendering even mid-frame, as t is copied to v
+                // at specific points (dot 257 for horizontal, dots 280-304 for vertical)
                 self.t = (self.t & 0xF3FF) | (((data as u16) & 0x03) << 10);
 
                 // NMI enable/disable handling

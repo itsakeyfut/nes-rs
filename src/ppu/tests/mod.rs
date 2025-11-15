@@ -54,6 +54,7 @@ pub(crate) fn create_test_cartridge_chr_ram() -> Cartridge {
 // ========================================
 
 mod memory;
+mod quirks;
 mod registers;
 mod rendering;
 mod timing;
