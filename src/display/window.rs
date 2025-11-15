@@ -4,12 +4,14 @@
 // using the winit and pixels crates.
 
 use super::framebuffer::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::input::keyboard::{KeyboardHandler, Player};
+use crate::input::ControllerIO;
 use pixels::{Pixels, SurfaceTexture};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
@@ -83,6 +85,8 @@ pub struct DisplayWindow {
     config: WindowConfig,
     frame_buffer: FrameBuffer,
     last_frame_time: Instant,
+    keyboard_handler: KeyboardHandler,
+    controller_io: ControllerIO,
 }
 
 impl DisplayWindow {
@@ -94,6 +98,8 @@ impl DisplayWindow {
             config,
             frame_buffer: FrameBuffer::new(),
             last_frame_time: Instant::now(),
+            keyboard_handler: KeyboardHandler::new(),
+            controller_io: ControllerIO::new(),
         }
     }
 
@@ -105,6 +111,35 @@ impl DisplayWindow {
     /// Get a mutable reference to the frame buffer
     pub fn frame_buffer_mut(&mut self) -> &mut FrameBuffer {
         &mut self.frame_buffer
+    }
+
+    /// Get a reference to the keyboard handler
+    pub fn keyboard_handler(&self) -> &KeyboardHandler {
+        &self.keyboard_handler
+    }
+
+    /// Get a mutable reference to the keyboard handler
+    pub fn keyboard_handler_mut(&mut self) -> &mut KeyboardHandler {
+        &mut self.keyboard_handler
+    }
+
+    /// Get a reference to the controller I/O
+    pub fn controller_io(&self) -> &ControllerIO {
+        &self.controller_io
+    }
+
+    /// Get a mutable reference to the controller I/O
+    pub fn controller_io_mut(&mut self) -> &mut ControllerIO {
+        &mut self.controller_io
+    }
+
+    /// Update controller states from current keyboard state
+    fn update_controllers(&mut self) {
+        let controller1 = self.keyboard_handler.get_controller_state(Player::One);
+        let controller2 = self.keyboard_handler.get_controller_state(Player::Two);
+
+        self.controller_io.set_controller1(controller1);
+        self.controller_io.set_controller2(controller2);
     }
 
     /// Render the current frame buffer to the window
@@ -184,6 +219,26 @@ impl ApplicationHandler for DisplayWindow {
             WindowEvent::CloseRequested => {
                 println!("Close requested, exiting...");
                 event_loop.exit();
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key,
+                        state,
+                        ..
+                    },
+                ..
+            } => {
+                match state {
+                    ElementState::Pressed => {
+                        self.keyboard_handler.handle_key_press(physical_key);
+                    }
+                    ElementState::Released => {
+                        self.keyboard_handler.handle_key_release(physical_key);
+                    }
+                }
+                // Update controller states after keyboard input
+                self.update_controllers();
             }
             WindowEvent::RedrawRequested => {
                 // Render frame if enough time has passed
