@@ -399,3 +399,271 @@ fn test_odd_frame_skip_only_when_rendering_enabled() {
     assert!(frame_complete);
     assert_eq!(ppu.frame_count(), 2);
 }
+
+// VBlank and NMI Race Condition Tests
+// ========================================
+
+/// Helper function to advance PPU to a specific scanline and cycle
+fn advance_to_scanline_cycle(ppu: &mut Ppu, target_scanline: u16, target_cycle: u16) {
+    // Calculate total cycles needed
+    let current_total = ppu.scanline() as u32 * CYCLES_PER_SCANLINE as u32 + ppu.cycle() as u32;
+    let target_total = target_scanline as u32 * CYCLES_PER_SCANLINE as u32 + target_cycle as u32;
+
+    if target_total <= current_total {
+        // Need to advance to next frame first
+        while ppu.scanline() != 0 || ppu.cycle() != 0 {
+            ppu.step();
+        }
+    }
+
+    // Now advance to target
+    while ppu.scanline() != target_scanline || ppu.cycle() != target_cycle {
+        ppu.step();
+
+        // Safety check
+        if ppu.scanline() > target_scanline ||
+           (ppu.scanline() == target_scanline && ppu.cycle() > target_cycle) {
+            panic!("Overshot target scanline/cycle");
+        }
+    }
+}
+
+#[test]
+fn test_vblank_flag_set_exactly_on_cycle_1() {
+    let mut ppu = Ppu::new();
+
+    // Advance to scanline 241, cycle 0 (right before VBlank)
+    advance_to_scanline_cycle(&mut ppu, 241, 0);
+
+    // VBlank flag should not be set yet
+    assert_eq!(ppu.ppustatus & 0x80, 0, "VBlank flag should not be set at cycle 0");
+
+    // Step to cycle 1
+    ppu.step();
+
+    // VBlank flag should now be set
+    assert_eq!(ppu.ppustatus & 0x80, 0x80, "VBlank flag should be set at cycle 1");
+    assert_eq!(ppu.scanline(), 241);
+    assert_eq!(ppu.cycle(), 1);
+}
+
+#[test]
+fn test_vblank_flag_cleared_exactly_on_prerender_cycle_1() {
+    let mut ppu = Ppu::new();
+
+    // Advance to VBlank and verify flag is set
+    advance_to_scanline_cycle(&mut ppu, 241, 1);
+    ppu.step();
+    assert_eq!(ppu.ppustatus & 0x80, 0x80, "VBlank flag should be set");
+
+    // Advance to pre-render scanline, cycle 0
+    advance_to_scanline_cycle(&mut ppu, 261, 0);
+
+    // VBlank should still be set at cycle 0
+    assert_eq!(ppu.ppustatus & 0x80, 0x80, "VBlank flag should still be set at cycle 0");
+
+    // Step to cycle 1
+    ppu.step();
+
+    // VBlank flag should now be cleared
+    assert_eq!(ppu.ppustatus & 0x80, 0, "VBlank flag should be cleared at cycle 1 of pre-render");
+}
+
+#[test]
+fn test_ppustatus_read_on_exact_vblank_cycle_suppresses_nmi() {
+    use crate::bus::MemoryMappedDevice;
+
+    let mut ppu = Ppu::new();
+
+    // Enable NMI
+    ppu.write(0x2000, 0x80);
+
+    // Advance to scanline 241, cycle 1 (exact moment VBlank is set)
+    advance_to_scanline_cycle(&mut ppu, 241, 1);
+
+    // Read PPUSTATUS on the exact cycle VBlank is being set
+    // This should suppress the NMI
+    let status = ppu.read(0x2002);
+
+    // Status should show VBlank flag
+    assert_eq!(status & 0x80, 0x80, "PPUSTATUS should return VBlank flag set");
+
+    // But VBlank flag should now be cleared
+    assert_eq!(ppu.ppustatus & 0x80, 0, "VBlank flag should be cleared after read");
+
+    // And NMI should be suppressed
+    assert!(!ppu.nmi_pending(), "NMI should be suppressed when PPUSTATUS is read on exact VBlank cycle");
+}
+
+#[test]
+fn test_ppustatus_read_after_vblank_set_clears_flag_but_not_nmi() {
+    use crate::bus::MemoryMappedDevice;
+
+    let mut ppu = Ppu::new();
+
+    // Enable NMI
+    ppu.write(0x2000, 0x80);
+
+    // Advance to scanline 241, cycle 5 (after VBlank is set)
+    advance_to_scanline_cycle(&mut ppu, 241, 5);
+
+    // NMI should be pending
+    assert!(ppu.nmi_pending(), "NMI should be pending");
+
+    // Read PPUSTATUS
+    let status = ppu.read(0x2002);
+
+    // Status should show VBlank flag
+    assert_eq!(status & 0x80, 0x80, "PPUSTATUS should return VBlank flag set");
+
+    // VBlank flag should be cleared
+    assert_eq!(ppu.ppustatus & 0x80, 0, "VBlank flag should be cleared after read");
+
+    // But NMI should still be pending (only suppressed if read on exact cycle)
+    assert!(ppu.nmi_pending(), "NMI should still be pending after PPUSTATUS read");
+}
+
+#[test]
+fn test_enabling_nmi_during_vblank_triggers_nmi() {
+    use crate::bus::MemoryMappedDevice;
+
+    let mut ppu = Ppu::new();
+
+    // NMI is disabled initially
+
+    // Advance to VBlank (a few cycles in)
+    advance_to_scanline_cycle(&mut ppu, 241, 10);
+
+    // VBlank should be set but NMI not pending
+    assert_eq!(ppu.ppustatus & 0x80, 0x80, "VBlank flag should be set");
+    assert!(!ppu.nmi_pending(), "NMI should not be pending initially");
+
+    // Enable NMI by writing to PPUCTRL
+    ppu.write(0x2000, 0x80);
+
+    // NMI should now be triggered
+    assert!(ppu.nmi_pending(), "NMI should be triggered when enabled during VBlank");
+}
+
+#[test]
+fn test_disabling_nmi_suppresses_pending_nmi() {
+    use crate::bus::MemoryMappedDevice;
+
+    let mut ppu = Ppu::new();
+
+    // Enable NMI
+    ppu.write(0x2000, 0x80);
+
+    // Advance to VBlank
+    advance_to_scanline_cycle(&mut ppu, 241, 2);
+
+    // NMI should be pending
+    assert!(ppu.nmi_pending(), "NMI should be pending");
+
+    // Disable NMI
+    ppu.write(0x2000, 0x00);
+
+    // NMI should be suppressed
+    assert!(!ppu.nmi_pending(), "NMI should be suppressed when disabled");
+}
+
+#[test]
+fn test_enabling_nmi_on_exact_vblank_cycle_does_not_trigger() {
+    use crate::bus::MemoryMappedDevice;
+
+    let mut ppu = Ppu::new();
+
+    // NMI is disabled initially
+
+    // Advance to scanline 241, cycle 1 (exact moment VBlank is set)
+    advance_to_scanline_cycle(&mut ppu, 241, 1);
+
+    // Enable NMI on the exact cycle VBlank is being set
+    ppu.write(0x2000, 0x80);
+
+    // According to NES behavior, enabling NMI on the exact cycle VBlank
+    // is set should not trigger NMI (due to vblank_just_set flag)
+    assert!(!ppu.nmi_pending(), "NMI should not be triggered when enabled on exact VBlank cycle");
+}
+
+#[test]
+fn test_multiple_ppustatus_reads_during_vblank() {
+    use crate::bus::MemoryMappedDevice;
+
+    let mut ppu = Ppu::new();
+
+    // Advance to VBlank
+    advance_to_scanline_cycle(&mut ppu, 241, 5);
+
+    // First read should return VBlank set
+    let status1 = ppu.read(0x2002);
+    assert_eq!(status1 & 0x80, 0x80, "First read should show VBlank set");
+
+    // Second read should return VBlank cleared
+    let status2 = ppu.read(0x2002);
+    assert_eq!(status2 & 0x80, 0, "Second read should show VBlank cleared");
+
+    // Third read should also return VBlank cleared
+    let status3 = ppu.read(0x2002);
+    assert_eq!(status3 & 0x80, 0, "Third read should show VBlank cleared");
+}
+
+#[test]
+fn test_vblank_timing_across_frames() {
+    let mut ppu = Ppu::new();
+
+    // First frame - check VBlank is set
+    advance_to_scanline_cycle(&mut ppu, 241, 1);
+    ppu.step();
+    assert_eq!(ppu.ppustatus & 0x80, 0x80, "VBlank should be set in first frame");
+
+    // Advance to next frame (scanline 0, cycle 0)
+    while ppu.frame_count() < 1 {
+        ppu.step();
+    }
+
+    // VBlank should be cleared at start of new frame
+    assert_eq!(ppu.ppustatus & 0x80, 0, "VBlank should be cleared at start of next frame");
+
+    // Advance to VBlank in second frame
+    advance_to_scanline_cycle(&mut ppu, 241, 1);
+    ppu.step();
+
+    // VBlank should be set again
+    assert_eq!(ppu.ppustatus & 0x80, 0x80, "VBlank should be set in second frame");
+}
+
+#[test]
+fn test_sprite_flags_cleared_on_prerender() {
+    let mut ppu = Ppu::new();
+
+    // Manually set sprite 0 hit and sprite overflow flags
+    ppu.ppustatus |= 0x40 | 0x20;
+
+    // Advance to pre-render scanline
+    advance_to_scanline_cycle(&mut ppu, 261, 1);
+    ppu.step();
+
+    // Both flags should be cleared
+    assert_eq!(ppu.ppustatus & 0x40, 0, "Sprite 0 hit should be cleared on pre-render scanline");
+    assert_eq!(ppu.ppustatus & 0x20, 0, "Sprite overflow should be cleared on pre-render scanline");
+}
+
+#[test]
+fn test_nmi_cleared_on_prerender() {
+    let mut ppu = Ppu::new();
+
+    // Enable NMI and advance to VBlank
+    ppu.ppuctrl = 0x80;
+    advance_to_scanline_cycle(&mut ppu, 241, 2);
+
+    // NMI should be pending
+    assert!(ppu.nmi_pending(), "NMI should be pending");
+
+    // Advance to pre-render scanline
+    advance_to_scanline_cycle(&mut ppu, 261, 1);
+    ppu.step();
+
+    // NMI should be cleared
+    assert!(!ppu.nmi_pending(), "NMI should be cleared on pre-render scanline");
+}
