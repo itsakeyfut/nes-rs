@@ -29,11 +29,19 @@
 // Each read returns bit 0 = button state (1 = pressed, 0 = released)
 // Reading order: A, B, Select, Start, Up, Down, Left, Right
 
+pub mod config;
+pub mod gamepad;
 pub mod keyboard;
+pub mod unified;
 
 use crate::bus::MemoryMappedDevice;
 
+pub use config::{
+    GamepadMappingConfig, InputConfig, KeyboardMappingConfig,
+};
+pub use gamepad::{GamepadHandler, GamepadMapping};
 pub use keyboard::{Button, KeyboardHandler, KeyboardMapping, Player};
+pub use unified::UnifiedInputHandler;
 
 /// Controller button state structure
 ///
