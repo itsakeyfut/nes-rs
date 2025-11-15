@@ -59,10 +59,8 @@ impl TriangleChannel {
         let low = self.timer.period as u8;
         self.timer.set_period(low, data & 0x07);
 
-        // Load length counter if channel is enabled
-        if self.enabled {
-            self.length_counter.load(data >> 3);
-        }
+        // Always load length counter; $4015 controls whether it is cleared
+        self.length_counter.load(data >> 3);
 
         // Set linear counter reload flag
         self.linear_counter.set_reload_flag();
