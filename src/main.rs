@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load or create input configuration
     let config_path = "input_config.toml";
-    let input_config = InputConfig::load_or_default(config_path);
+    let _input_config = InputConfig::load_or_default(config_path);
     println!("Input configuration loaded from '{}'", config_path);
     println!();
 

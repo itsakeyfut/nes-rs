@@ -1,0 +1,39 @@
+[keyboard_player1]
+button_a = "KeyX"
+button_b = "KeyZ"
+select = "ShiftRight"
+start = "Enter"
+up = "ArrowUp"
+down = "ArrowDown"
+left = "ArrowLeft"
+right = "ArrowRight"
+
+[keyboard_player2]
+button_a = "KeyK"
+button_b = "KeyJ"
+select = "KeyU"
+start = "KeyY"
+up = "KeyW"
+down = "KeyS"
+left = "KeyA"
+right = "KeyD"
+
+[gamepad_player1]
+button_a = "East"
+button_b = "South"
+select = "Select"
+start = "Start"
+up = "DPadUp"
+down = "DPadDown"
+left = "DPadLeft"
+right = "DPadRight"
+
+[gamepad_player2]
+button_a = "East"
+button_b = "South"
+select = "Select"
+start = "Start"
+up = "DPadUp"
+down = "DPadDown"
+left = "DPadLeft"
+right = "DPadRight"

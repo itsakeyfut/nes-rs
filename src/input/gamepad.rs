@@ -42,14 +42,14 @@ impl GamepadMapping {
     /// A new GamepadMapping with standard button layout
     pub fn default_mapping() -> Self {
         Self {
-            button_a: GilrsButton::East,      // B/Circle on PlayStation, B on Xbox
-            button_b: GilrsButton::South,     // A/Cross on PlayStation, A on Xbox
-            select: GilrsButton::Select,      // Select/Back button
-            start: GilrsButton::Start,        // Start button
-            up: GilrsButton::DPadUp,          // D-pad up
-            down: GilrsButton::DPadDown,      // D-pad down
-            left: GilrsButton::DPadLeft,      // D-pad left
-            right: GilrsButton::DPadRight,    // D-pad right
+            button_a: GilrsButton::East,   // B/Circle on PlayStation, B on Xbox
+            button_b: GilrsButton::South,  // A/Cross on PlayStation, A on Xbox
+            select: GilrsButton::Select,   // Select/Back button
+            start: GilrsButton::Start,     // Start button
+            up: GilrsButton::DPadUp,       // D-pad up
+            down: GilrsButton::DPadDown,   // D-pad down
+            left: GilrsButton::DPadLeft,   // D-pad left
+            right: GilrsButton::DPadRight, // D-pad right
         }
     }
 
@@ -143,10 +143,7 @@ impl GamepadHandler {
     ///
     /// # Returns
     /// A new GamepadHandler with the specified mappings
-    pub fn with_mappings(
-        player1_mapping: GamepadMapping,
-        player2_mapping: GamepadMapping,
-    ) -> Self {
+    pub fn with_mappings(player1_mapping: GamepadMapping, player2_mapping: GamepadMapping) -> Self {
         let gilrs = Gilrs::new().unwrap_or_else(|e| {
             eprintln!("Failed to initialize gamepad support: {}", e);
             panic!("Gamepad initialization failed");
@@ -197,7 +194,9 @@ impl GamepadHandler {
         }
 
         if self.gamepad_assignments.is_empty() {
-            println!("No gamepads detected. Gamepad support is available when you connect a controller.");
+            println!(
+                "No gamepads detected. Gamepad support is available when you connect a controller."
+            );
         }
     }
 
@@ -313,7 +312,8 @@ impl GamepadHandler {
     ///
     /// # Example
     /// ```
-    /// use nes_rs::input::gamepad::{GamepadHandler, Player};
+    /// use nes_rs::input::gamepad::GamepadHandler;
+    /// use nes_rs::input::Player;
     ///
     /// let mut handler = GamepadHandler::new();
     /// handler.update(); // Process events

@@ -36,9 +36,7 @@ pub mod unified;
 
 use crate::bus::MemoryMappedDevice;
 
-pub use config::{
-    GamepadMappingConfig, InputConfig, KeyboardMappingConfig,
-};
+pub use config::{GamepadMappingConfig, InputConfig, KeyboardMappingConfig};
 pub use gamepad::{GamepadHandler, GamepadMapping};
 pub use keyboard::{Button, KeyboardHandler, KeyboardMapping, Player};
 pub use unified::UnifiedInputHandler;

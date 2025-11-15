@@ -190,11 +190,11 @@ impl InputConfig {
     /// # Returns
     /// Result containing InputConfig or error message
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let contents = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read config file: {}", e))?;
+        let contents =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read config file: {}", e))?;
 
-        let config: InputConfig = toml::from_str(&contents)
-            .map_err(|e| format!("Failed to parse config file: {}", e))?;
+        let config: InputConfig =
+            toml::from_str(&contents).map_err(|e| format!("Failed to parse config file: {}", e))?;
 
         Ok(config)
     }
@@ -210,8 +210,7 @@ impl InputConfig {
         let toml_string = toml::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-        fs::write(path, toml_string)
-            .map_err(|e| format!("Failed to write config file: {}", e))?;
+        fs::write(path, toml_string).map_err(|e| format!("Failed to write config file: {}", e))?;
 
         Ok(())
     }
