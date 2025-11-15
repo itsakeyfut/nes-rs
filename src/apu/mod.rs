@@ -206,7 +206,8 @@ impl Sweep {
     fn clock(&mut self, current_period: u16) -> Option<u16> {
         let mut update_period = None;
 
-        if self.divider == 0 && self.enabled && !self.is_muting(current_period) {
+        // Only update period if shift > 0; muting still applies even when shift == 0
+        if self.divider == 0 && self.enabled && self.shift > 0 && !self.is_muting(current_period) {
             update_period = Some(self.calculate_target_period(current_period));
         }
 
