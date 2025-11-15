@@ -29,7 +29,11 @@
 // Each read returns bit 0 = button state (1 = pressed, 0 = released)
 // Reading order: A, B, Select, Start, Up, Down, Left, Right
 
+pub mod keyboard;
+
 use crate::bus::MemoryMappedDevice;
+
+pub use keyboard::{Button, KeyboardHandler, KeyboardMapping, Player};
 
 /// Controller button state structure
 ///
