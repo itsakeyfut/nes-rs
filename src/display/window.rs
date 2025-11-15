@@ -4,8 +4,7 @@
 // using the winit and pixels crates.
 
 use super::framebuffer::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::input::keyboard::{KeyboardHandler, Player};
-use crate::input::ControllerIO;
+use crate::input::{ControllerIO, Player, UnifiedInputHandler};
 use pixels::{Pixels, SurfaceTexture};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -85,7 +84,7 @@ pub struct DisplayWindow {
     config: WindowConfig,
     frame_buffer: FrameBuffer,
     last_frame_time: Instant,
-    keyboard_handler: KeyboardHandler,
+    input_handler: UnifiedInputHandler,
     controller_io: ControllerIO,
 }
 
@@ -98,7 +97,7 @@ impl DisplayWindow {
             config,
             frame_buffer: FrameBuffer::new(),
             last_frame_time: Instant::now(),
-            keyboard_handler: KeyboardHandler::new(),
+            input_handler: UnifiedInputHandler::new(),
             controller_io: ControllerIO::new(),
         }
     }
@@ -113,14 +112,14 @@ impl DisplayWindow {
         &mut self.frame_buffer
     }
 
-    /// Get a reference to the keyboard handler
-    pub fn keyboard_handler(&self) -> &KeyboardHandler {
-        &self.keyboard_handler
+    /// Get a reference to the input handler
+    pub fn input_handler(&self) -> &UnifiedInputHandler {
+        &self.input_handler
     }
 
-    /// Get a mutable reference to the keyboard handler
-    pub fn keyboard_handler_mut(&mut self) -> &mut KeyboardHandler {
-        &mut self.keyboard_handler
+    /// Get a mutable reference to the input handler
+    pub fn input_handler_mut(&mut self) -> &mut UnifiedInputHandler {
+        &mut self.input_handler
     }
 
     /// Get a reference to the controller I/O
@@ -133,10 +132,14 @@ impl DisplayWindow {
         &mut self.controller_io
     }
 
-    /// Update controller states from current keyboard state
+    /// Update controller states from current input state (keyboard + gamepad)
     fn update_controllers(&mut self) {
-        let controller1 = self.keyboard_handler.get_controller_state(Player::One);
-        let controller2 = self.keyboard_handler.get_controller_state(Player::Two);
+        // Update gamepad states first
+        self.input_handler.update_gamepads();
+
+        // Get merged controller states (keyboard + gamepad)
+        let controller1 = self.input_handler.get_controller_state(Player::One);
+        let controller2 = self.input_handler.get_controller_state(Player::Two);
 
         self.controller_io.set_controller1(controller1);
         self.controller_io.set_controller2(controller2);
@@ -231,10 +234,10 @@ impl ApplicationHandler for DisplayWindow {
             } => {
                 match state {
                     ElementState::Pressed => {
-                        self.keyboard_handler.handle_key_press(physical_key);
+                        self.input_handler.handle_key_press(physical_key);
                     }
                     ElementState::Released => {
-                        self.keyboard_handler.handle_key_release(physical_key);
+                        self.input_handler.handle_key_release(physical_key);
                     }
                 }
                 // Update controller states after keyboard input
@@ -259,6 +262,9 @@ impl ApplicationHandler for DisplayWindow {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        // Update controllers (including gamepad polling)
+        self.update_controllers();
+
         // Request a redraw
         if let Some(window) = &self.window {
             window.request_redraw();
