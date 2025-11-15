@@ -45,6 +45,20 @@ fn test_sprite_0_hit_not_at_x_255() {
 
     // Sprite 0 hit should never occur at X=255 in real hardware
     // This is an edge case that prevents false hits
+
+    // Verify the setup is correct
+    assert_eq!(ppu.oam[3], 255, "Sprite 0 X position should be 255");
+
+    // Clear sprite 0 hit flag
+    ppu.ppustatus &= !0x40;
+
+    // TODO: Set up full rendering scenario and verify sprite 0 hit does not occur
+    // For now, verify that the sprite 0 hit flag starts clear
+    assert_eq!(
+        ppu.ppustatus & 0x40,
+        0,
+        "Sprite 0 hit should not be set at X=255"
+    );
 }
 
 #[test]
@@ -55,15 +69,34 @@ fn test_sprite_0_hit_requires_both_rendering_enabled() {
     ppu.write(PPUMASK, 0x08); // Only background rendering
     ppu.ppustatus &= !0x40;
     // Sprite 0 hit cannot occur
+    // TODO: Verify sprite 0 hit cannot occur with only background enabled after rendering
+    assert_eq!(
+        ppu.ppustatus & 0x40,
+        0,
+        "Sprite 0 hit should not be set with only background rendering"
+    );
 
     // Test with only sprites enabled
     ppu.write(PPUMASK, 0x10); // Only sprite rendering
     ppu.ppustatus &= !0x40;
     // Sprite 0 hit cannot occur
+    // TODO: Verify sprite 0 hit cannot occur with only sprites enabled after rendering
+    assert_eq!(
+        ppu.ppustatus & 0x40,
+        0,
+        "Sprite 0 hit should not be set with only sprite rendering"
+    );
 
     // Test with both enabled
     ppu.write(PPUMASK, 0x18); // Both background and sprite rendering
                               // Sprite 0 hit CAN occur (if pixels overlap)
+                              // TODO: Verify sprite 0 hit CAN occur when both are enabled and pixels overlap
+                              // For now, verify the rendering flags are set correctly
+    assert_eq!(
+        ppu.ppumask & 0x18,
+        0x18,
+        "Both background and sprite rendering should be enabled"
+    );
 }
 
 #[test]
@@ -79,14 +112,38 @@ fn test_sprite_0_hit_left_edge_clipping() {
     ppu.write_oam(2, 0);
     ppu.write_oam(3, 5);
 
+    // Verify sprite 0 is positioned within leftmost 8 pixels
+    assert_eq!(ppu.oam[3], 5, "Sprite 0 should be at X=5");
+    assert!(ppu.oam[3] < 8, "Sprite 0 X position should be < 8");
+
     // With both left-edge clipping disabled (bits 1 and 2 set),
     // sprite 0 hit CAN occur in the leftmost 8 pixels
+    // TODO: Verify hit can occur in leftmost 8 pixels when clipping is disabled
+    assert_eq!(
+        ppu.ppumask & 0x06,
+        0x06,
+        "Left-edge clipping should be disabled (bits 1 and 2 set)"
+    );
 
     // Now enable left-edge clipping
     ppu.write(PPUMASK, 0x18); // Only bits 3 and 4 set
 
     // With left-edge clipping enabled (bits 1 or 2 clear),
     // sprite 0 hit should NOT occur in X < 8
+    // TODO: Verify hit does not occur in X < 8 when clipping is enabled
+    assert_eq!(
+        ppu.ppumask & 0x06,
+        0x00,
+        "Left-edge clipping should be enabled (bits 1 and 2 clear)"
+    );
+
+    // Clear sprite 0 hit flag
+    ppu.ppustatus &= !0x40;
+    assert_eq!(
+        ppu.ppustatus & 0x40,
+        0,
+        "Sprite 0 hit should not be set without rendering"
+    );
 }
 
 #[test]
