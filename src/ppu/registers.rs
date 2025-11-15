@@ -34,6 +34,8 @@ impl Ppu {
                 // Reading PPUSTATUS has side effects:
                 // 1. Clears bit 7 (VBlank flag) after reading
                 // 2. Resets the address latch used by PPUSCROLL and PPUADDR
+                // 3. Race condition: If read on the exact cycle VBlank is set,
+                //    suppresses NMI generation
                 let status = self.ppustatus;
 
                 // Clear VBlank flag (bit 7)
@@ -41,6 +43,12 @@ impl Ppu {
 
                 // Reset address latch (w register)
                 self.write_latch = false;
+
+                // Race condition handling: If PPUSTATUS is read on the same cycle
+                // that VBlank flag is set (scanline 241, cycle 1), suppress the NMI
+                if self.vblank_just_set {
+                    self.nmi_pending = false;
+                }
 
                 status
             }
@@ -115,12 +123,30 @@ impl Ppu {
         match register {
             0 => {
                 // $2000: PPUCTRL - Write only
+                let old_nmi_enable = (self.ppuctrl & 0x80) != 0;
+                let new_nmi_enable = (data & 0x80) != 0;
+
                 self.ppuctrl = data;
 
                 // Update nametable select bits in t register
                 // t: ...GH.. ........ <- d: ......GH
                 // (bits 10-11 of t from bits 0-1 of data)
                 self.t = (self.t & 0xF3FF) | (((data as u16) & 0x03) << 10);
+
+                // NMI enable/disable handling
+                // If NMI is being enabled and VBlank flag is already set, trigger NMI
+                // (unless this is the exact cycle VBlank is being set - that's handled separately)
+                if !old_nmi_enable && new_nmi_enable {
+                    // Enabling NMI
+                    if (self.ppustatus & 0x80) != 0 && !self.vblank_just_set {
+                        self.nmi_pending = true;
+                    }
+                } else if old_nmi_enable && !new_nmi_enable {
+                    // Disabling NMI - suppress any pending NMI
+                    self.nmi_pending = false;
+                }
+
+                self.prev_nmi_enable = new_nmi_enable;
             }
             1 => {
                 // $2001: PPUMASK - Write only
