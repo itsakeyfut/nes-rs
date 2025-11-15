@@ -4,8 +4,7 @@
 // using the winit and pixels crates.
 
 use super::framebuffer::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::input::keyboard::{KeyboardHandler, Player};
-use crate::input::ControllerIO;
+use crate::input::{ControllerIO, InputConfig, Player, UnifiedInputHandler};
 use pixels::{Pixels, SurfaceTexture};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -85,7 +84,7 @@ pub struct DisplayWindow {
     config: WindowConfig,
     frame_buffer: FrameBuffer,
     last_frame_time: Instant,
-    keyboard_handler: KeyboardHandler,
+    input_handler: UnifiedInputHandler,
     controller_io: ControllerIO,
 }
 
@@ -98,9 +97,34 @@ impl DisplayWindow {
             config,
             frame_buffer: FrameBuffer::new(),
             last_frame_time: Instant::now(),
-            keyboard_handler: KeyboardHandler::new(),
+            input_handler: UnifiedInputHandler::new(),
             controller_io: ControllerIO::new(),
         }
+    }
+
+    /// Create a new display window with custom input configuration
+    ///
+    /// # Arguments
+    /// * `config` - Window configuration
+    /// * `input_config` - Input configuration for keyboard and gamepad mappings
+    ///
+    /// # Returns
+    /// Result containing DisplayWindow or error message if input config is invalid
+    pub fn with_input_config(
+        config: WindowConfig,
+        input_config: &InputConfig,
+    ) -> Result<Self, String> {
+        let input_handler = UnifiedInputHandler::with_config(input_config)?;
+
+        Ok(Self {
+            window: None,
+            pixels: None,
+            config,
+            frame_buffer: FrameBuffer::new(),
+            last_frame_time: Instant::now(),
+            input_handler,
+            controller_io: ControllerIO::new(),
+        })
     }
 
     /// Get a reference to the frame buffer
@@ -113,14 +137,14 @@ impl DisplayWindow {
         &mut self.frame_buffer
     }
 
-    /// Get a reference to the keyboard handler
-    pub fn keyboard_handler(&self) -> &KeyboardHandler {
-        &self.keyboard_handler
+    /// Get a reference to the input handler
+    pub fn input_handler(&self) -> &UnifiedInputHandler {
+        &self.input_handler
     }
 
-    /// Get a mutable reference to the keyboard handler
-    pub fn keyboard_handler_mut(&mut self) -> &mut KeyboardHandler {
-        &mut self.keyboard_handler
+    /// Get a mutable reference to the input handler
+    pub fn input_handler_mut(&mut self) -> &mut UnifiedInputHandler {
+        &mut self.input_handler
     }
 
     /// Get a reference to the controller I/O
@@ -133,10 +157,14 @@ impl DisplayWindow {
         &mut self.controller_io
     }
 
-    /// Update controller states from current keyboard state
+    /// Update controller states from current input state (keyboard + gamepad)
     fn update_controllers(&mut self) {
-        let controller1 = self.keyboard_handler.get_controller_state(Player::One);
-        let controller2 = self.keyboard_handler.get_controller_state(Player::Two);
+        // Update gamepad states first
+        self.input_handler.update_gamepads();
+
+        // Get merged controller states (keyboard + gamepad)
+        let controller1 = self.input_handler.get_controller_state(Player::One);
+        let controller2 = self.input_handler.get_controller_state(Player::Two);
 
         self.controller_io.set_controller1(controller1);
         self.controller_io.set_controller2(controller2);
@@ -231,10 +259,10 @@ impl ApplicationHandler for DisplayWindow {
             } => {
                 match state {
                     ElementState::Pressed => {
-                        self.keyboard_handler.handle_key_press(physical_key);
+                        self.input_handler.handle_key_press(physical_key);
                     }
                     ElementState::Released => {
-                        self.keyboard_handler.handle_key_release(physical_key);
+                        self.input_handler.handle_key_release(physical_key);
                     }
                 }
                 // Update controller states after keyboard input
@@ -259,6 +287,9 @@ impl ApplicationHandler for DisplayWindow {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        // Update controllers (including gamepad polling)
+        self.update_controllers();
+
         // Request a redraw
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -270,10 +301,14 @@ impl ApplicationHandler for DisplayWindow {
 ///
 /// # Arguments
 /// * `config` - Window configuration
+/// * `input_config` - Optional input configuration for custom mappings
 ///
 /// # Returns
 /// Result indicating success or error
-pub fn run_display(config: WindowConfig) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_display(
+    config: WindowConfig,
+    input_config: Option<&InputConfig>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
 
     // Set control flow based on VSync setting
@@ -283,7 +318,12 @@ pub fn run_display(config: WindowConfig) -> Result<(), Box<dyn std::error::Error
         event_loop.set_control_flow(ControlFlow::Poll);
     }
 
-    let mut display = DisplayWindow::new(config);
+    let mut display = if let Some(input_cfg) = input_config {
+        DisplayWindow::with_input_config(config, input_cfg)
+            .map_err(|e| format!("Failed to apply input configuration: {}", e))?
+    } else {
+        DisplayWindow::new(config)
+    };
 
     // Create a test pattern for demonstration
     display.frame_buffer_mut().test_pattern();
