@@ -4,11 +4,19 @@
 // Eventually, this will integrate with the full emulator (CPU, PPU, etc.)
 
 use nes_rs::display::{run_display, WindowConfig};
+use nes_rs::input::InputConfig;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("NES Emulator (nes-rs) v0.1.0");
     println!("==============================");
     println!();
+
+    // Load or create input configuration
+    let config_path = "input_config.toml";
+    let input_config = InputConfig::load_or_default(config_path);
+    println!("Input configuration loaded from '{}'", config_path);
+    println!();
+
     println!("Display System Test");
     println!("-------------------");
     println!();
