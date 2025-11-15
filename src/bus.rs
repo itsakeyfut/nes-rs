@@ -482,6 +482,58 @@ impl Bus {
     }
 
     // ========================================
+    // Controller Input
+    // ========================================
+
+    /// Update controller 1 state
+    ///
+    /// Sets the button states for controller 1. This should be called by the
+    /// application layer when input events occur (e.g., keyboard or gamepad input).
+    ///
+    /// # Arguments
+    ///
+    /// * `controller` - The new controller state with button states
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::{Bus, input::Controller};
+    ///
+    /// let mut bus = Bus::new();
+    /// let mut controller = Controller::new();
+    /// controller.button_a = true;
+    /// controller.start = true;
+    /// bus.set_controller1(controller);
+    /// ```
+    pub fn set_controller1(&mut self, controller: crate::input::Controller) {
+        self.controller_io.set_controller1(controller);
+    }
+
+    /// Update controller 2 state
+    ///
+    /// Sets the button states for controller 2. This should be called by the
+    /// application layer when input events occur (e.g., keyboard or gamepad input).
+    ///
+    /// # Arguments
+    ///
+    /// * `controller` - The new controller state with button states
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nes_rs::{Bus, input::Controller};
+    ///
+    /// let mut bus = Bus::new();
+    /// let mut controller = Controller::new();
+    /// controller.button_b = true;
+    /// controller.select = true;
+    /// bus.set_controller2(controller);
+    /// ```
+    pub fn set_controller2(&mut self, controller: crate::input::Controller) {
+        self.controller_io.set_controller2(controller);
+    }
+
+    // ========================================
     // PPU Synchronization
     // ========================================
 
@@ -1343,5 +1395,116 @@ mod tests {
                 sprite_num
             );
         }
+    }
+
+    // ========================================
+    // Controller Integration Tests
+    // ========================================
+
+    #[test]
+    fn test_bus_set_controller1() {
+        use crate::input::Controller;
+        let mut bus = Bus::new();
+
+        // Create controller with some buttons pressed
+        let mut controller = Controller::new();
+        controller.button_a = true;
+        controller.start = true;
+
+        // Set controller state via bus
+        bus.set_controller1(controller);
+
+        // Read controller state via memory-mapped I/O
+        bus.write(0x4016, 0x01); // Strobe on
+        bus.write(0x4016, 0x00); // Strobe off
+
+        assert_eq!(bus.read(0x4016), 0x01); // A pressed
+        assert_eq!(bus.read(0x4016), 0x00); // B not pressed
+        assert_eq!(bus.read(0x4016), 0x00); // Select not pressed
+        assert_eq!(bus.read(0x4016), 0x01); // Start pressed
+    }
+
+    #[test]
+    fn test_bus_set_controller2() {
+        use crate::input::Controller;
+        let mut bus = Bus::new();
+
+        // Create controller with different buttons pressed
+        let mut controller = Controller::new();
+        controller.button_b = true;
+        controller.select = true;
+
+        // Set controller state via bus
+        bus.set_controller2(controller);
+
+        // Read controller state via memory-mapped I/O
+        bus.write(0x4016, 0x01); // Strobe on
+        bus.write(0x4016, 0x00); // Strobe off
+
+        assert_eq!(bus.read(0x4017), 0x00); // A not pressed
+        assert_eq!(bus.read(0x4017), 0x01); // B pressed
+        assert_eq!(bus.read(0x4017), 0x01); // Select pressed
+        assert_eq!(bus.read(0x4017), 0x00); // Start not pressed
+    }
+
+    #[test]
+    fn test_bus_both_controllers_independent() {
+        use crate::input::Controller;
+        let mut bus = Bus::new();
+
+        // Set different states for each controller
+        let mut controller1 = Controller::new();
+        controller1.button_a = true;
+        controller1.up = true;
+        bus.set_controller1(controller1);
+
+        let mut controller2 = Controller::new();
+        controller2.button_b = true;
+        controller2.down = true;
+        bus.set_controller2(controller2);
+
+        // Read both controllers
+        bus.write(0x4016, 0x01);
+        bus.write(0x4016, 0x00);
+
+        // Controller 1
+        assert_eq!(bus.read(0x4016), 0x01); // A pressed
+        assert_eq!(bus.read(0x4016), 0x00); // B not pressed
+        assert_eq!(bus.read(0x4016), 0x00); // Select not pressed
+        assert_eq!(bus.read(0x4016), 0x00); // Start not pressed
+        assert_eq!(bus.read(0x4016), 0x01); // Up pressed
+
+        // Controller 2
+        assert_eq!(bus.read(0x4017), 0x00); // A not pressed
+        assert_eq!(bus.read(0x4017), 0x01); // B pressed
+        assert_eq!(bus.read(0x4017), 0x00); // Select not pressed
+        assert_eq!(bus.read(0x4017), 0x00); // Start not pressed
+        assert_eq!(bus.read(0x4017), 0x00); // Up not pressed
+        assert_eq!(bus.read(0x4017), 0x01); // Down pressed
+    }
+
+    #[test]
+    fn test_bus_controller_update_during_gameplay() {
+        use crate::input::Controller;
+        let mut bus = Bus::new();
+
+        // Simulate first frame - A button pressed
+        let mut controller = Controller::new();
+        controller.button_a = true;
+        bus.set_controller1(controller);
+
+        bus.write(0x4016, 0x01);
+        bus.write(0x4016, 0x00);
+        assert_eq!(bus.read(0x4016), 0x01); // A pressed
+
+        // Simulate second frame - A released, B pressed
+        let mut controller = Controller::new();
+        controller.button_b = true;
+        bus.set_controller1(controller);
+
+        bus.write(0x4016, 0x01);
+        bus.write(0x4016, 0x00);
+        assert_eq!(bus.read(0x4016), 0x00); // A not pressed
+        assert_eq!(bus.read(0x4016), 0x01); // B pressed
     }
 }
