@@ -1026,7 +1026,13 @@ impl Ppu {
             // - A non-transparent sprite pixel overlaps a non-transparent background pixel
             // - X coordinate is not 255
             // - Rendering is enabled for both sprites and background
-            if is_sprite_0 && x != 255 && (self.ppumask & 0x08) != 0 {
+            // - Left-edge clipping: only occurs in X < 8 if both sprite and background
+            //   left-edge clipping are disabled (bits 1 and 2 of PPUMASK both set)
+            if is_sprite_0
+                && x != 255
+                && (self.ppumask & 0x08) != 0
+                && (x >= 8 || (self.ppumask & 0x06) == 0x06)
+            {
                 // Check if background pixel is non-transparent
                 // Background is transparent only when color index is 0
                 let bg_is_transparent = bg_color_index == 0;
