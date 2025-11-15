@@ -688,6 +688,17 @@ impl Ppu {
         self.bg_attribute_shift_high <<= 1;
     }
 
+    /// Get the background color index from the shift registers
+    ///
+    /// Returns the 2-bit color index (0-3) from the pattern data, without
+    /// applying palette lookup. This is used for sprite 0 hit detection.
+    pub(super) fn get_background_color_index(&self) -> u8 {
+        let bit_position = 15 - self.fine_x;
+        let bit_0 = (self.bg_pattern_shift_low >> bit_position) & 0x01;
+        let bit_1 = (self.bg_pattern_shift_high >> bit_position) & 0x01;
+        ((bit_1 << 1) | bit_0) as u8
+    }
+
     /// Get the current background pixel color from the shift registers
     ///
     /// Returns the palette index (0-63) for the current pixel.
@@ -1004,6 +1015,11 @@ impl Ppu {
             // Get the sprite color from palette RAM
             let sprite_color = self.get_sprite_color(palette_index, color_index);
 
+            // Get background color index for transparency detection
+            // This is separate from the final palette color to handle cases where
+            // a non-zero color index happens to match the backdrop color
+            let bg_color_index = self.get_background_color_index();
+
             // Check for sprite 0 hit
             // Sprite 0 hit occurs when:
             // - Sprite 0 is being rendered
@@ -1012,8 +1028,8 @@ impl Ppu {
             // - Rendering is enabled for both sprites and background
             if is_sprite_0 && x != 255 {
                 // Check if background pixel is non-transparent
-                // Background color index 0 is the universal background color
-                let bg_is_transparent = bg_pixel == self.palette_ram[0];
+                // Background is transparent only when color index is 0
+                let bg_is_transparent = bg_color_index == 0;
 
                 if !bg_is_transparent {
                     // Set sprite 0 hit flag
@@ -1024,8 +1040,8 @@ impl Ppu {
             // Handle sprite priority
             if behind_bg {
                 // Sprite is behind background
-                // Only draw sprite if background pixel is transparent
-                if bg_pixel == self.palette_ram[0] {
+                // Only draw sprite if background pixel is transparent (color index 0)
+                if bg_color_index == 0 {
                     sprite_color
                 } else {
                     bg_pixel
