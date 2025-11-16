@@ -1103,3 +1103,786 @@ impl Ppu {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================
+    // Helper Functions
+    // ========================================
+
+    /// Create a PPU with basic setup for testing
+    fn create_test_ppu() -> Ppu {
+        Ppu::new()
+    }
+
+    /// Setup a simple tile in the pattern table
+    fn setup_test_tile(ppu: &mut Ppu, pattern_table_base: u16, tile_index: u8, pattern: &[u8; 16]) {
+        let tile_addr = pattern_table_base + (tile_index as u16) * 16;
+        for (i, &byte) in pattern.iter().enumerate() {
+            ppu.write_ppu_memory(tile_addr + i as u16, byte);
+        }
+    }
+
+    /// Setup a nametable tile (direct memory access)
+    fn setup_nametable_tile(
+        ppu: &mut Ppu,
+        nametable_base: u16,
+        tile_x: usize,
+        tile_y: usize,
+        tile_index: u8,
+    ) {
+        let addr = nametable_base + (tile_y * 32 + tile_x) as u16;
+        ppu.write_ppu_memory(addr, tile_index);
+    }
+
+    /// Setup an attribute table entry (direct memory access)
+    fn setup_attribute_byte(
+        ppu: &mut Ppu,
+        nametable_base: u16,
+        attr_x: usize,
+        attr_y: usize,
+        value: u8,
+    ) {
+        let attr_addr = nametable_base + 0x3C0 + (attr_y * 8 + attr_x) as u16;
+        ppu.write_ppu_memory(attr_addr, value);
+    }
+
+    // ========================================
+    // Background Rendering Tests
+    // ========================================
+
+    #[test]
+    fn test_render_background_with_rendering_disabled() {
+        let mut ppu = create_test_ppu();
+
+        // Disable background rendering (PPUMASK bit 3)
+        ppu.ppumask = 0x00;
+
+        // Render background
+        ppu.render_background();
+
+        // Frame buffer should be filled with 0
+        assert!(ppu.frame_buffer.iter().all(|&pixel| pixel == 0));
+    }
+
+    #[test]
+    fn test_read_nametable_tile() {
+        let mut ppu = create_test_ppu();
+
+        // Write a tile index to nametable
+        setup_nametable_tile(&mut ppu, 0x2000, 0, 0, 0x42);
+
+        // Read it back
+        let tile_index = ppu.read_nametable_tile(0x2000);
+        assert_eq!(tile_index, 0x42);
+    }
+
+    #[test]
+    fn test_read_attribute_byte() {
+        let mut ppu = create_test_ppu();
+
+        // Setup attribute byte
+        // Attribute layout: bits [7:6] = top-right, [5:4] = top-left,
+        //                        [3:2] = bottom-right, [1:0] = bottom-left
+        setup_attribute_byte(&mut ppu, 0x2000, 0, 0, 0b11_10_01_00);
+
+        // Test bottom-left (tiles 0,0 - 1,1)
+        let palette = ppu.read_attribute_byte(0x2000, 0, 0);
+        assert_eq!(palette, 0b00);
+
+        // Test bottom-right (tiles 2,0 - 3,1)
+        let palette = ppu.read_attribute_byte(0x2000, 2, 0);
+        assert_eq!(palette, 0b01);
+
+        // Test top-left (tiles 0,2 - 1,3)
+        let palette = ppu.read_attribute_byte(0x2000, 0, 2);
+        assert_eq!(palette, 0b10);
+
+        // Test top-right (tiles 2,2 - 3,3)
+        let palette = ppu.read_attribute_byte(0x2000, 2, 2);
+        assert_eq!(palette, 0b11);
+    }
+
+    #[test]
+    #[ignore = "Requires mapper implementation for CHR memory access"]
+    fn test_fetch_tile_pixel() {
+        let mut ppu = create_test_ppu();
+
+        // Create a test tile pattern (diagonal line from top-left to bottom-right)
+        // Bitplane 0: 10000000, 01000000, 00100000, ...
+        // Bitplane 1: 10000000, 01000000, 00100000, ...
+        // Result: color index 3 on diagonal, 0 elsewhere
+        let pattern = [
+            0b10000000, 0b01000000, 0b00100000, 0b00010000, 0b00001000, 0b00000100, 0b00000010,
+            0b00000001, 0b10000000, 0b01000000, 0b00100000, 0b00010000, 0b00001000, 0b00000100,
+            0b00000010, 0b00000001,
+        ];
+        setup_test_tile(&mut ppu, 0x0000, 0, &pattern);
+
+        // Test diagonal pixels (should be color 3)
+        assert_eq!(ppu.fetch_tile_pixel(0x0000, 0, 0, 0), 3);
+        assert_eq!(ppu.fetch_tile_pixel(0x0000, 0, 1, 1), 3);
+        assert_eq!(ppu.fetch_tile_pixel(0x0000, 0, 2, 2), 3);
+
+        // Test non-diagonal pixels (should be color 0)
+        assert_eq!(ppu.fetch_tile_pixel(0x0000, 0, 1, 0), 0);
+        assert_eq!(ppu.fetch_tile_pixel(0x0000, 0, 0, 1), 0);
+    }
+
+    #[test]
+    fn test_get_background_color() {
+        let mut ppu = create_test_ppu();
+
+        // Setup palette RAM
+        // Universal background color at $3F00
+        ppu.palette_ram[0] = 0x0F; // Black
+
+        // Palette 0 at $3F01-$3F03
+        ppu.palette_ram[1] = 0x30; // Color 1
+        ppu.palette_ram[2] = 0x31; // Color 2
+        ppu.palette_ram[3] = 0x32; // Color 3
+
+        // Test color index 0 returns universal background color
+        assert_eq!(ppu.get_background_color(0, 0), 0x0F);
+        assert_eq!(ppu.get_background_color(1, 0), 0x0F);
+
+        // Test non-zero color indices
+        assert_eq!(ppu.get_background_color(0, 1), 0x30);
+        assert_eq!(ppu.get_background_color(0, 2), 0x31);
+        assert_eq!(ppu.get_background_color(0, 3), 0x32);
+    }
+
+    #[test]
+    #[ignore = "Requires mapper implementation for CHR memory access"]
+    fn test_render_background_basic() {
+        let mut ppu = create_test_ppu();
+
+        // Enable background rendering
+        ppu.ppumask = 0x08;
+
+        // Setup a simple tile (all pixels color 1)
+        let pattern = [
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        setup_test_tile(&mut ppu, 0x0000, 0, &pattern);
+
+        // Setup nametable to use this tile
+        setup_nametable_tile(&mut ppu, 0x2000, 0, 0, 0);
+
+        // Setup palette
+        ppu.palette_ram[0] = 0x0F; // Background
+        ppu.palette_ram[1] = 0x30; // Color 1
+
+        // Render
+        ppu.render_background();
+
+        // Check that first tile (8x8 pixels) uses the correct color
+        for y in 0..8 {
+            for x in 0..8 {
+                let pixel = ppu.frame_buffer[y * SCREEN_WIDTH + x];
+                assert_eq!(pixel, 0x30, "Pixel at ({}, {}) should be 0x30", x, y);
+            }
+        }
+    }
+
+    // ========================================
+    // Sprite Tests
+    // ========================================
+
+    #[test]
+    fn test_sprite_vflip() {
+        let sprite = Sprite {
+            y: 0,
+            tile_index: 0,
+            attributes: 0x80, // Vertical flip
+            x: 0,
+            oam_index: 0,
+        };
+
+        assert!(sprite.is_vflip());
+        assert!(!sprite.is_hflip());
+    }
+
+    #[test]
+    fn test_sprite_hflip() {
+        let sprite = Sprite {
+            y: 0,
+            tile_index: 0,
+            attributes: 0x40, // Horizontal flip
+            x: 0,
+            oam_index: 0,
+        };
+
+        assert!(!sprite.is_vflip());
+        assert!(sprite.is_hflip());
+    }
+
+    #[test]
+    fn test_sprite_behind_background() {
+        let sprite_front = Sprite {
+            y: 0,
+            tile_index: 0,
+            attributes: 0x00,
+            x: 0,
+            oam_index: 0,
+        };
+
+        let sprite_behind = Sprite {
+            y: 0,
+            tile_index: 0,
+            attributes: 0x20,
+            x: 0,
+            oam_index: 0,
+        };
+
+        assert!(!sprite_front.is_behind_background());
+        assert!(sprite_behind.is_behind_background());
+    }
+
+    #[test]
+    fn test_sprite_palette() {
+        let sprite = Sprite {
+            y: 0,
+            tile_index: 0,
+            attributes: 0b00000010, // Palette 2
+            x: 0,
+            oam_index: 0,
+        };
+
+        assert_eq!(sprite.palette(), 2);
+    }
+
+    #[test]
+    fn test_sprite_is_sprite_zero() {
+        let sprite_0 = Sprite {
+            y: 0,
+            tile_index: 0,
+            attributes: 0,
+            x: 0,
+            oam_index: 0,
+        };
+
+        let sprite_1 = Sprite {
+            y: 0,
+            tile_index: 0,
+            attributes: 0,
+            x: 0,
+            oam_index: 1,
+        };
+
+        assert!(sprite_0.is_sprite_zero());
+        assert!(!sprite_1.is_sprite_zero());
+    }
+
+    #[test]
+    fn test_parse_sprites() {
+        let mut ppu = create_test_ppu();
+
+        // Setup first sprite in OAM
+        ppu.oam[0] = 10; // Y
+        ppu.oam[1] = 0x20; // Tile index
+        ppu.oam[2] = 0x01; // Attributes
+        ppu.oam[3] = 50; // X
+
+        let sprites = ppu.parse_sprites();
+
+        assert_eq!(sprites[0].y, 10);
+        assert_eq!(sprites[0].tile_index, 0x20);
+        assert_eq!(sprites[0].attributes, 0x01);
+        assert_eq!(sprites[0].x, 50);
+        assert_eq!(sprites[0].oam_index, 0);
+    }
+
+    #[test]
+    fn test_evaluate_sprites_for_scanline() {
+        let mut ppu = create_test_ppu();
+
+        // Setup sprites
+        for i in 0..64 {
+            ppu.oam[i * 4] = (i * 10) as u8; // Different Y positions
+            ppu.oam[i * 4 + 1] = i as u8;
+            ppu.oam[i * 4 + 2] = 0;
+            ppu.oam[i * 4 + 3] = 0;
+        }
+
+        let sprites = ppu.parse_sprites();
+
+        // Evaluate scanline 10 (should include sprite at Y=9, since Y is top-1)
+        let (_visible, overflow) = ppu.evaluate_sprites_for_scanline(10, &sprites);
+
+        // Sprite 0 at Y=0 covers scanlines 1-8
+        // Sprite 1 at Y=10 covers scanlines 11-18
+        // So scanline 10 should have sprite 0 visible (Y+1 = 1, height 8, so 1-8)
+        // Actually, sprite at Y position 9 would be visible at scanline 10
+        assert!(!overflow);
+    }
+
+    #[test]
+    fn test_evaluate_sprites_8_per_scanline_limit() {
+        let mut ppu = create_test_ppu();
+
+        // Setup 10 sprites all on the same scanline
+        for i in 0..10 {
+            ppu.oam[i * 4] = 9; // Y position 9 (displays at scanline 10)
+            ppu.oam[i * 4 + 1] = i as u8;
+            ppu.oam[i * 4 + 2] = 0;
+            ppu.oam[i * 4 + 3] = (i * 8) as u8;
+        }
+
+        let sprites = ppu.parse_sprites();
+        let (visible, overflow) = ppu.evaluate_sprites_for_scanline(10, &sprites);
+
+        // Should only get 8 sprites
+        assert_eq!(visible.len(), 8);
+        // Overflow should be detected
+        assert!(overflow);
+    }
+
+    #[test]
+    fn test_get_sprite_height_8x8() {
+        let mut ppu = create_test_ppu();
+        ppu.ppuctrl = 0x00; // 8x8 mode
+
+        assert_eq!(ppu.get_sprite_height(), 8);
+    }
+
+    #[test]
+    fn test_get_sprite_height_8x16() {
+        let mut ppu = create_test_ppu();
+        ppu.ppuctrl = 0x20; // 8x16 mode
+
+        assert_eq!(ppu.get_sprite_height(), 16);
+    }
+
+    #[test]
+    fn test_get_sprite_color() {
+        let mut ppu = create_test_ppu();
+
+        // Setup sprite palette
+        ppu.palette_ram[16] = 0x0F; // Sprite palette 0, color 0 (transparent)
+        ppu.palette_ram[17] = 0x30; // Sprite palette 0, color 1
+        ppu.palette_ram[18] = 0x31; // Sprite palette 0, color 2
+        ppu.palette_ram[19] = 0x32; // Sprite palette 0, color 3
+
+        // Color 0 should return 0 (transparent)
+        assert_eq!(ppu.get_sprite_color(0, 0), 0);
+
+        // Non-zero colors
+        assert_eq!(ppu.get_sprite_color(0, 1), 0x30);
+        assert_eq!(ppu.get_sprite_color(0, 2), 0x31);
+        assert_eq!(ppu.get_sprite_color(0, 3), 0x32);
+    }
+
+    #[test]
+    fn test_render_sprites_with_rendering_disabled() {
+        let mut ppu = create_test_ppu();
+
+        // Disable sprite rendering
+        ppu.ppumask = 0x00;
+
+        // Setup a sprite
+        ppu.oam[0] = 10;
+        ppu.oam[1] = 0;
+        ppu.oam[2] = 0;
+        ppu.oam[3] = 10;
+
+        // Render sprites
+        ppu.render_sprites();
+
+        // No changes should be made to the frame buffer
+        // (it should remain all zeros)
+        assert!(ppu.frame_buffer.iter().all(|&pixel| pixel == 0));
+    }
+
+    #[test]
+    #[ignore = "Requires mapper implementation for CHR memory access"]
+    fn test_sprite_0_hit_detection() {
+        let mut ppu = create_test_ppu();
+
+        // Enable both background and sprite rendering
+        ppu.ppumask = 0x18;
+
+        // Setup background with non-zero pixel
+        let bg_pattern = [
+            0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        setup_test_tile(&mut ppu, 0x0000, 0, &bg_pattern);
+        setup_nametable_tile(&mut ppu, 0x2000, 0, 0, 0);
+        ppu.palette_ram[0] = 0x0F;
+        ppu.palette_ram[1] = 0x30;
+
+        // Setup sprite 0 overlapping the background non-zero pixel
+        ppu.oam[0] = 0; // Y (sprite appears at scanline 1)
+        ppu.oam[1] = 0; // Tile
+        ppu.oam[2] = 0; // Attributes
+        ppu.oam[3] = 0; // X
+
+        // Setup sprite pattern (same as background)
+        setup_test_tile(&mut ppu, 0x0000, 0, &bg_pattern);
+        ppu.palette_ram[16] = 0x0F;
+        ppu.palette_ram[17] = 0x31;
+
+        // Render frame
+        ppu.render_frame();
+
+        // Sprite 0 hit flag should be set
+        assert_eq!(
+            ppu.ppustatus & 0x40,
+            0x40,
+            "Sprite 0 hit flag should be set"
+        );
+    }
+
+    // ========================================
+    // Scanline Rendering Tests
+    // ========================================
+
+    #[test]
+    fn test_get_tile_fetch_phase() {
+        let ppu = create_test_ppu();
+
+        assert_eq!(ppu.get_tile_fetch_phase(0), TileFetchPhase::Nametable);
+        assert_eq!(ppu.get_tile_fetch_phase(1), TileFetchPhase::Nametable);
+        assert_eq!(ppu.get_tile_fetch_phase(2), TileFetchPhase::Attribute);
+        assert_eq!(ppu.get_tile_fetch_phase(3), TileFetchPhase::Attribute);
+        assert_eq!(ppu.get_tile_fetch_phase(4), TileFetchPhase::PatternLow);
+        assert_eq!(ppu.get_tile_fetch_phase(5), TileFetchPhase::PatternLow);
+        assert_eq!(ppu.get_tile_fetch_phase(6), TileFetchPhase::PatternHigh);
+        assert_eq!(ppu.get_tile_fetch_phase(7), TileFetchPhase::PatternHigh);
+    }
+
+    #[test]
+    fn test_increment_scroll_x() {
+        let mut ppu = create_test_ppu();
+        ppu.ppumask = 0x18; // Enable rendering
+
+        // Set coarse X to 0
+        ppu.v = 0x0000;
+        ppu.increment_scroll_x();
+        assert_eq!(ppu.v & 0x001F, 1);
+
+        // Test wrapping at 31
+        ppu.v = 0x001F; // Coarse X = 31
+        ppu.increment_scroll_x();
+        assert_eq!(ppu.v & 0x001F, 0, "Coarse X should wrap to 0");
+        assert_eq!(ppu.v & 0x0400, 0x0400, "Horizontal nametable should switch");
+    }
+
+    #[test]
+    fn test_increment_scroll_y() {
+        let mut ppu = create_test_ppu();
+        ppu.ppumask = 0x18; // Enable rendering
+
+        // Test fine Y increment
+        ppu.v = 0x0000;
+        ppu.increment_scroll_y();
+        assert_eq!(ppu.v & 0x7000, 0x1000);
+
+        // Test fine Y wrap and coarse Y increment
+        ppu.v = 0x7000; // Fine Y = 7
+        ppu.increment_scroll_y();
+        assert_eq!(ppu.v & 0x7000, 0, "Fine Y should wrap to 0");
+        assert_eq!((ppu.v >> 5) & 0x1F, 1, "Coarse Y should increment");
+
+        // Test coarse Y wrap at 29
+        ppu.v = 0x73A0; // Fine Y = 7, Coarse Y = 29
+        ppu.increment_scroll_y();
+        assert_eq!(ppu.v & 0x7000, 0, "Fine Y should wrap");
+        assert_eq!((ppu.v >> 5) & 0x1F, 0, "Coarse Y should wrap to 0");
+        assert_eq!(ppu.v & 0x0800, 0x0800, "Vertical nametable should switch");
+    }
+
+    #[test]
+    fn test_copy_horizontal_scroll() {
+        let mut ppu = create_test_ppu();
+        ppu.ppumask = 0x18; // Enable rendering
+
+        ppu.t = 0x041F; // Coarse X = 31, horizontal nametable = 1
+        ppu.v = 0x0000;
+
+        ppu.copy_horizontal_scroll();
+
+        assert_eq!(ppu.v & 0x041F, 0x041F);
+    }
+
+    #[test]
+    fn test_copy_vertical_scroll() {
+        let mut ppu = create_test_ppu();
+        ppu.ppumask = 0x18; // Enable rendering
+
+        ppu.t = 0x7BE0; // Fine Y = 7, Coarse Y = 31, vertical nametable = 1
+        ppu.v = 0x0000;
+
+        ppu.copy_vertical_scroll();
+
+        assert_eq!(ppu.v & 0x7BE0, 0x7BE0);
+    }
+
+    #[test]
+    fn test_shift_background_registers() {
+        let mut ppu = create_test_ppu();
+
+        ppu.bg_pattern_shift_low = 0b1010101010101010;
+        ppu.bg_pattern_shift_high = 0b1100110011001100;
+
+        ppu.shift_background_registers();
+
+        assert_eq!(ppu.bg_pattern_shift_low, 0b0101010101010100);
+        assert_eq!(ppu.bg_pattern_shift_high, 0b1001100110011000);
+    }
+
+    #[test]
+    fn test_get_background_color_index() {
+        let mut ppu = create_test_ppu();
+
+        // Setup shift registers with known pattern
+        ppu.bg_pattern_shift_low = 0b1000000000000000;
+        ppu.bg_pattern_shift_high = 0b1000000000000000;
+        ppu.fine_x = 0;
+
+        // Color index should be 3 (both bits set)
+        assert_eq!(ppu.get_background_color_index(), 3);
+
+        // Test with fine_x offset
+        ppu.fine_x = 1;
+        assert_eq!(ppu.get_background_color_index(), 0);
+    }
+
+    #[test]
+    fn test_load_shift_registers() {
+        let mut ppu = create_test_ppu();
+
+        ppu.bg_pattern_low = 0xAA;
+        ppu.bg_pattern_high = 0xCC;
+        ppu.bg_attribute_byte = 0b11; // Both bits set
+
+        ppu.load_shift_registers();
+
+        assert_eq!(ppu.bg_pattern_shift_low & 0xFF, 0xAA);
+        assert_eq!(ppu.bg_pattern_shift_high & 0xFF, 0xCC);
+        assert_eq!(ppu.bg_attribute_shift_low & 0xFF, 0xFF);
+        assert_eq!(ppu.bg_attribute_shift_high & 0xFF, 0xFF);
+    }
+
+    #[test]
+    fn test_update_sprite_shifters() {
+        let mut ppu = create_test_ppu();
+
+        // Setup sprite at X position 0 (active)
+        ppu.sprite_x_positions[0] = 0;
+        ppu.sprite_pattern_shift_low[0] = 0b10101010;
+        ppu.sprite_pattern_shift_high[0] = 0b11001100;
+
+        // Setup sprite at X position 5 (counting down)
+        ppu.sprite_x_positions[1] = 5;
+
+        ppu.update_sprite_shifters();
+
+        // Active sprite should shift
+        assert_eq!(ppu.sprite_pattern_shift_low[0], 0b01010100);
+        assert_eq!(ppu.sprite_pattern_shift_high[0], 0b10011000);
+
+        // Counting sprite should decrement
+        assert_eq!(ppu.sprite_x_positions[1], 4);
+    }
+
+    #[test]
+    fn test_get_sprite_pixel_no_sprites() {
+        let mut ppu = create_test_ppu();
+        ppu.ppumask = 0x10; // Enable sprite rendering
+        ppu.sprite_count = 0;
+
+        assert!(ppu.get_sprite_pixel().is_none());
+    }
+
+    #[test]
+    fn test_get_sprite_pixel_with_sprite() {
+        let mut ppu = create_test_ppu();
+        ppu.ppumask = 0x10; // Enable sprite rendering
+
+        // Setup an active sprite
+        ppu.sprite_count = 1;
+        ppu.sprite_x_positions[0] = 0;
+        ppu.sprite_pattern_shift_low[0] = 0b10000000;
+        ppu.sprite_pattern_shift_high[0] = 0b10000000;
+        ppu.sprite_attributes[0] = 0x02; // Palette 2
+        ppu.sprite_0_present = true;
+
+        let result = ppu.get_sprite_pixel();
+        assert!(result.is_some());
+
+        let (sprite_idx, color_idx, palette_idx, behind_bg, is_sprite_0) = result.unwrap();
+        assert_eq!(sprite_idx, 0);
+        assert_eq!(color_idx, 3); // Both bits set
+        assert_eq!(palette_idx, 2);
+        assert!(!behind_bg);
+        assert!(is_sprite_0);
+    }
+
+    #[test]
+    #[ignore = "Requires mapper implementation for CHR memory access"]
+    fn test_composite_pixel_sprite_in_front() {
+        let mut ppu = create_test_ppu();
+        ppu.ppumask = 0x18; // Enable both rendering
+
+        // Setup sprite
+        ppu.sprite_count = 1;
+        ppu.sprite_x_positions[0] = 0;
+        ppu.sprite_pattern_shift_low[0] = 0b10000000;
+        ppu.sprite_pattern_shift_high[0] = 0b10000000;
+        ppu.sprite_attributes[0] = 0x00; // In front
+
+        // Setup sprite palette
+        ppu.palette_ram[16] = 0x0F;
+        ppu.palette_ram[17] = 0x30; // Color 1
+
+        let bg_pixel = 0x20;
+        let final_pixel = ppu.composite_pixel(10, bg_pixel);
+
+        // Sprite should be in front
+        assert_eq!(final_pixel, 0x30);
+    }
+
+    #[test]
+    fn test_composite_pixel_sprite_behind_background() {
+        let mut ppu = create_test_ppu();
+        ppu.ppumask = 0x18; // Enable both rendering
+
+        // Setup sprite behind background
+        ppu.sprite_count = 1;
+        ppu.sprite_x_positions[0] = 0;
+        ppu.sprite_pattern_shift_low[0] = 0b10000000;
+        ppu.sprite_pattern_shift_high[0] = 0b10000000;
+        ppu.sprite_attributes[0] = 0x20; // Behind background
+
+        // Setup background with non-transparent pixel
+        ppu.bg_pattern_shift_low = 0b1000000000000000;
+        ppu.bg_pattern_shift_high = 0b0000000000000000;
+        ppu.fine_x = 0;
+
+        let bg_pixel = 0x20; // Non-zero background
+        let final_pixel = ppu.composite_pixel(10, bg_pixel);
+
+        // Background should show (sprite is behind)
+        assert_eq!(final_pixel, 0x20);
+    }
+
+    #[test]
+    fn test_render_frame_clears_sprite_flags() {
+        let mut ppu = create_test_ppu();
+
+        // Set sprite flags
+        ppu.ppustatus = 0x60; // Sprite 0 hit and overflow
+
+        // Render frame
+        ppu.render_frame();
+
+        // Flags should be cleared at start
+        // (they may be set again during rendering, but they start cleared)
+        // Since we have no sprites/background setup, they should remain cleared
+        assert_eq!(ppu.ppustatus & 0x60, 0);
+    }
+
+    #[test]
+    #[ignore = "Requires mapper implementation for CHR memory access"]
+    fn test_fetch_sprite_pixel_with_horizontal_flip() {
+        let mut ppu = create_test_ppu();
+
+        // Setup 8x8 mode
+        ppu.ppuctrl = 0x00;
+
+        // Create a pattern with first pixel set
+        let pattern = [
+            0b10000000, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0b10000000, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        setup_test_tile(&mut ppu, 0x0000, 0, &pattern);
+
+        let sprite = Sprite {
+            y: 0,
+            tile_index: 0,
+            attributes: 0x40, // Horizontal flip
+            x: 0,
+            oam_index: 0,
+        };
+
+        // Without flip, pixel 0 would be color 3
+        // With flip, it should be color 0, and pixel 7 should be color 3
+        assert_eq!(ppu.fetch_sprite_pixel(&sprite, 0, 0), 0);
+        assert_eq!(ppu.fetch_sprite_pixel(&sprite, 7, 0), 3);
+    }
+
+    #[test]
+    #[ignore = "Requires mapper implementation for CHR memory access"]
+    fn test_fetch_sprite_pixel_with_vertical_flip() {
+        let mut ppu = create_test_ppu();
+
+        // Setup 8x8 mode
+        ppu.ppuctrl = 0x00;
+
+        // Create a pattern with first row set
+        let pattern = [
+            0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        setup_test_tile(&mut ppu, 0x0000, 0, &pattern);
+
+        let sprite = Sprite {
+            y: 0,
+            tile_index: 0,
+            attributes: 0x80, // Vertical flip
+            x: 0,
+            oam_index: 0,
+        };
+
+        // With vertical flip, row 0 should show row 7's data (which is 0)
+        // and row 7 should show row 0's data (which is 3)
+        assert_eq!(ppu.fetch_sprite_pixel(&sprite, 0, 0), 0);
+        assert_eq!(ppu.fetch_sprite_pixel(&sprite, 0, 7), 3);
+    }
+
+    #[test]
+    fn test_attribute_byte_boundary() {
+        let mut ppu = create_test_ppu();
+
+        // Test at the boundary between attribute blocks
+        // Attribute byte 0 covers tiles 0-3 (x) and 0-3 (y)
+        // Attribute byte 1 covers tiles 4-7 (x) and 0-3 (y)
+
+        setup_attribute_byte(&mut ppu, 0x2000, 0, 0, 0b11_10_01_00);
+        setup_attribute_byte(&mut ppu, 0x2000, 1, 0, 0b00_01_10_11);
+
+        // Tile at (3, 1) should use first byte, top-right quadrant
+        let palette1 = ppu.read_attribute_byte(0x2000, 3, 1);
+
+        // Tile at (4, 1) should use second byte, top-left quadrant
+        let palette2 = ppu.read_attribute_byte(0x2000, 4, 1);
+
+        // These should be different
+        assert_ne!(palette1, palette2);
+    }
+
+    #[test]
+    fn test_sprite_overflow_flag() {
+        let mut ppu = create_test_ppu();
+        ppu.ppumask = 0x10; // Enable sprite rendering
+
+        // Setup 9 sprites on the same scanline
+        for i in 0..9 {
+            ppu.oam[i * 4] = 9; // Y = 9 (visible at scanline 10)
+            ppu.oam[i * 4 + 1] = 0;
+            ppu.oam[i * 4 + 2] = 0;
+            ppu.oam[i * 4 + 3] = 0;
+        }
+
+        // Parse and render
+        let sprites = ppu.parse_sprites();
+        let (_, overflow) = ppu.evaluate_sprites_for_scanline(10, &sprites);
+
+        assert!(overflow, "Overflow should be detected with 9 sprites");
+    }
+}
