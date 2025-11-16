@@ -5,16 +5,28 @@
 
 mod mapper0;
 mod mapper1;
+mod mapper10;
+mod mapper11;
 mod mapper2;
 mod mapper3;
+mod mapper4;
+mod mapper66;
+mod mapper7;
+mod mapper9;
 
 use super::{Cartridge, Mapper};
 
 // Re-export mapper implementations for use in tests and direct instantiation
 pub use mapper0::Mapper0;
 pub use mapper1::Mapper1;
+pub use mapper10::Mapper10;
+pub use mapper11::Mapper11;
 pub use mapper2::Mapper2;
 pub use mapper3::Mapper3;
+pub use mapper4::Mapper4;
+pub use mapper66::Mapper66;
+pub use mapper7::Mapper7;
+pub use mapper9::Mapper9;
 
 /// Error type for mapper creation
 #[derive(Debug)]
@@ -68,8 +80,12 @@ pub fn create_mapper(cartridge: Cartridge) -> Result<Box<dyn Mapper>, MapperErro
         1 => Ok(Box::new(Mapper1::new(cartridge))),
         2 => Ok(Box::new(Mapper2::new(cartridge))),
         3 => Ok(Box::new(Mapper3::new(cartridge))),
-        // Future mapper implementations will be added here:
-        // 4 => Ok(Box::new(Mapper4::new(cartridge))),
+        4 => Ok(Box::new(Mapper4::new(cartridge))),
+        7 => Ok(Box::new(Mapper7::new(cartridge))),
+        9 => Ok(Box::new(Mapper9::new(cartridge))),
+        10 => Ok(Box::new(Mapper10::new(cartridge))),
+        11 => Ok(Box::new(Mapper11::new(cartridge))),
+        66 => Ok(Box::new(Mapper66::new(cartridge))),
         mapper_num => Err(MapperError::UnsupportedMapper(mapper_num)),
     }
 }
