@@ -1,0 +1,26 @@
+[video]
+scale = 3
+vsync = true
+fps = 60
+fullscreen = false
+
+[audio]
+enabled = true
+volume = 0.5
+
+[save_state]
+slots = 10
+auto_save_on_exit = false
+save_directory = "saves"
+
+[screenshot]
+screenshot_directory = "screenshots"
+include_timestamp = true
+
+[hotkeys]
+quick_save = "F5"
+quick_load = "F7"
+reset = "F8"
+screenshot = "F9"
+fast_forward = "Tab"
+pause = "P"
