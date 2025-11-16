@@ -365,3 +365,232 @@ impl Default for Emulator {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_emulator_new() {
+        let emulator = Emulator::new();
+        assert!(!emulator.is_paused());
+        assert_eq!(emulator.speed_mode(), SpeedMode::Normal);
+        assert!(emulator.rom_path().is_none());
+        assert!(emulator.cartridge.is_none());
+    }
+
+    #[test]
+    fn test_emulator_default() {
+        let emulator = Emulator::default();
+        assert!(!emulator.is_paused());
+        assert_eq!(emulator.speed_mode(), SpeedMode::Normal);
+    }
+
+    #[test]
+    fn test_emulator_pause() {
+        let mut emulator = Emulator::new();
+        assert!(!emulator.is_paused());
+
+        emulator.pause();
+        assert!(emulator.is_paused());
+    }
+
+    #[test]
+    fn test_emulator_resume() {
+        let mut emulator = Emulator::new();
+        emulator.pause();
+        assert!(emulator.is_paused());
+
+        emulator.resume();
+        assert!(!emulator.is_paused());
+    }
+
+    #[test]
+    fn test_emulator_toggle_pause() {
+        let mut emulator = Emulator::new();
+        assert!(!emulator.is_paused());
+
+        emulator.toggle_pause();
+        assert!(emulator.is_paused());
+
+        emulator.toggle_pause();
+        assert!(!emulator.is_paused());
+    }
+
+    #[test]
+    fn test_emulator_set_speed_mode() {
+        let mut emulator = Emulator::new();
+        assert_eq!(emulator.speed_mode(), SpeedMode::Normal);
+
+        emulator.set_speed_mode(SpeedMode::FastForward2x);
+        assert_eq!(emulator.speed_mode(), SpeedMode::FastForward2x);
+
+        emulator.set_speed_mode(SpeedMode::FastForward4x);
+        assert_eq!(emulator.speed_mode(), SpeedMode::FastForward4x);
+
+        emulator.set_speed_mode(SpeedMode::SlowMotion);
+        assert_eq!(emulator.speed_mode(), SpeedMode::SlowMotion);
+
+        emulator.set_speed_mode(SpeedMode::Normal);
+        assert_eq!(emulator.speed_mode(), SpeedMode::Normal);
+    }
+
+    #[test]
+    fn test_emulator_reset() {
+        let mut emulator = Emulator::new();
+
+        // Set paused state
+        emulator.pause();
+        assert!(emulator.is_paused());
+
+        // Reset should clear paused state
+        emulator.reset();
+        assert!(!emulator.is_paused());
+    }
+
+    #[test]
+    fn test_emulator_reset_after_cpu_modification() {
+        let mut emulator = Emulator::new();
+
+        // Modify CPU state
+        emulator.cpu_mut().a = 0xFF;
+        emulator.cpu_mut().x = 0xAA;
+        emulator.cpu_mut().y = 0x55;
+
+        // Reset should reinitialize CPU
+        emulator.reset();
+
+        // CPU should be reset (exact values depend on reset implementation)
+        // At minimum, PC should be set to reset vector
+        let cpu = emulator.cpu();
+        // After reset, registers should be in initial state
+        assert_eq!(cpu.a, 0);
+        assert_eq!(cpu.x, 0);
+        assert_eq!(cpu.y, 0);
+    }
+
+    #[test]
+    fn test_emulator_cpu_accessor() {
+        let emulator = Emulator::new();
+        let cpu = emulator.cpu();
+
+        // CPU should be initialized
+        assert_eq!(cpu.a, 0);
+        assert_eq!(cpu.x, 0);
+        assert_eq!(cpu.y, 0);
+    }
+
+    #[test]
+    fn test_emulator_cpu_mut_accessor() {
+        let mut emulator = Emulator::new();
+
+        // Modify CPU through mutable accessor
+        emulator.cpu_mut().a = 0x42;
+        emulator.cpu_mut().x = 0x13;
+        emulator.cpu_mut().y = 0x37;
+
+        // Verify changes persisted
+        assert_eq!(emulator.cpu().a, 0x42);
+        assert_eq!(emulator.cpu().x, 0x13);
+        assert_eq!(emulator.cpu().y, 0x37);
+    }
+
+    #[test]
+    fn test_emulator_bus_accessor() {
+        let emulator = Emulator::new();
+        let _bus = emulator.bus();
+
+        // Bus should be initialized and accessible
+        // (Specific tests depend on Bus implementation)
+    }
+
+    #[test]
+    fn test_emulator_bus_mut_accessor() {
+        let mut emulator = Emulator::new();
+
+        // Write to bus through mutable accessor
+        emulator.bus_mut().write(0x0000, 0x42);
+
+        // Verify write persisted
+        assert_eq!(emulator.bus_mut().read(0x0000), 0x42);
+    }
+
+    #[test]
+    fn test_emulator_config_accessor() {
+        let emulator = Emulator::new();
+        let _config = emulator.config();
+
+        // Config should be loaded or default
+        // (Specific tests depend on EmulatorConfig implementation)
+    }
+
+    #[test]
+    fn test_emulator_config_mut_accessor() {
+        let mut emulator = Emulator::new();
+        let _config = emulator.config_mut();
+
+        // Config should be mutable
+        // (Specific tests depend on EmulatorConfig implementation)
+    }
+
+    #[test]
+    fn test_emulator_rom_path_initially_none() {
+        let emulator = Emulator::new();
+        assert!(emulator.rom_path().is_none());
+    }
+
+    #[test]
+    fn test_emulator_pause_state_independent_of_speed() {
+        let mut emulator = Emulator::new();
+
+        emulator.set_speed_mode(SpeedMode::FastForward2x);
+        emulator.pause();
+
+        assert!(emulator.is_paused());
+        assert_eq!(emulator.speed_mode(), SpeedMode::FastForward2x);
+
+        emulator.resume();
+        assert!(!emulator.is_paused());
+        assert_eq!(emulator.speed_mode(), SpeedMode::FastForward2x);
+    }
+
+    #[test]
+    fn test_emulator_multiple_pause_resume_cycles() {
+        let mut emulator = Emulator::new();
+
+        for _ in 0..5 {
+            emulator.pause();
+            assert!(emulator.is_paused());
+
+            emulator.resume();
+            assert!(!emulator.is_paused());
+        }
+    }
+
+    #[test]
+    fn test_emulator_multiple_toggle_pause_cycles() {
+        let mut emulator = Emulator::new();
+
+        for i in 0..10 {
+            emulator.toggle_pause();
+            assert_eq!(emulator.is_paused(), i % 2 == 0);
+        }
+    }
+
+    #[test]
+    fn test_emulator_speed_mode_changes() {
+        let mut emulator = Emulator::new();
+
+        let modes = [
+            SpeedMode::Normal,
+            SpeedMode::FastForward2x,
+            SpeedMode::FastForward4x,
+            SpeedMode::SlowMotion,
+        ];
+
+        for mode in &modes {
+            emulator.set_speed_mode(*mode);
+            assert_eq!(emulator.speed_mode(), *mode);
+        }
+    }
+}
