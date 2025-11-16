@@ -3,6 +3,8 @@
 
 // Public modules
 pub mod apu;
+#[cfg(feature = "audio")]
+pub mod audio;
 pub mod bus;
 pub mod cartridge;
 pub mod cpu;
@@ -13,6 +15,8 @@ pub mod ram;
 
 // Re-export main types for convenience
 pub use apu::Apu;
+#[cfg(feature = "audio")]
+pub use audio::{AudioConfig, AudioOutput, AudioSystem, Mixer};
 pub use bus::{Bus, MemoryMappedDevice};
 pub use cartridge::{Cartridge, INesError, INesHeader, Mapper, Mirroring};
 pub use cpu::Cpu;
