@@ -65,15 +65,15 @@ mod components;
 mod constants;
 
 // Re-exports
-pub use channels::{PulseChannel, TriangleChannel};
+pub use channels::{NoiseChannel, PulseChannel, TriangleChannel};
 
 // APU Main Structure
 // ============================================================================
 
 /// APU structure representing the Audio Processing Unit state
 ///
-/// Phase 7 implementation with full pulse and triangle channel support.
-/// Noise and DMC channels remain as stubs for future implementation.
+/// Phase 7 implementation with full pulse, triangle, and noise channel support.
+/// DMC channel remains as stub for future implementation.
 pub struct Apu {
     // ========================================
     // Pulse Channels (Phase 7 - Implemented)
@@ -91,19 +91,10 @@ pub struct Apu {
     pub(crate) triangle: TriangleChannel,
 
     // ========================================
-    // Noise Registers ($400C-$400F)
+    // Noise Channel (Phase 7 - Implemented)
     // ========================================
-    /// $400C: Noise - Envelope
-    noise_envelope: u8,
-
-    /// $400D: Noise - Unused
-    noise_unused: u8,
-
-    /// $400E: Noise - Mode and period
-    noise_mode_period: u8,
-
-    /// $400F: Noise - Length counter
-    noise_length_counter: u8,
+    /// Noise channel
+    pub(crate) noise: NoiseChannel,
 
     // ========================================
     // DMC Registers ($4010-$4013)
@@ -158,11 +149,8 @@ impl Apu {
             // Triangle channel (Phase 7 - Implemented)
             triangle: TriangleChannel::new(),
 
-            // Noise
-            noise_envelope: 0x00,
-            noise_unused: 0x00,
-            noise_mode_period: 0x00,
-            noise_length_counter: 0x00,
+            // Noise channel (Phase 7 - Implemented)
+            noise: NoiseChannel::new(),
 
             // DMC
             dmc_flags_rate: 0x00,
@@ -196,6 +184,7 @@ impl Apu {
         self.pulse1.clock_timer();
         self.pulse2.clock_timer();
         self.triangle.clock_timer();
+        self.noise.clock_timer();
     }
 
     /// Clock the frame sequencer quarter frame
@@ -209,6 +198,7 @@ impl Apu {
         self.pulse1.clock_envelope();
         self.pulse2.clock_envelope();
         self.triangle.clock_linear_counter();
+        self.noise.clock_envelope();
     }
 
     /// Clock the frame sequencer half frame
@@ -219,6 +209,7 @@ impl Apu {
         self.pulse1.clock_envelope();
         self.pulse2.clock_envelope();
         self.triangle.clock_linear_counter();
+        self.noise.clock_envelope();
 
         // Clock length counter and sweep (half frame only)
         self.pulse1.clock_length_counter();
@@ -226,6 +217,7 @@ impl Apu {
         self.pulse2.clock_length_counter();
         self.pulse2.clock_sweep();
         self.triangle.clock_length_counter();
+        self.noise.clock_length_counter();
     }
 
     /// Get the mixed output sample from all channels
@@ -257,6 +249,11 @@ impl Apu {
     /// Get the output from triangle channel
     pub fn triangle_output(&self) -> u8 {
         self.triangle.output()
+    }
+
+    /// Get the output from noise channel
+    pub fn noise_output(&self) -> u8 {
+        self.noise.output()
     }
 
     /// Read from an APU register
@@ -313,7 +310,10 @@ impl Apu {
                 if self.triangle.length_counter.is_active() {
                     status |= 0x04;
                 }
-                // Noise, DMC not implemented yet (bits 3-4)
+                if self.noise.length_counter.is_active() {
+                    status |= 0x08;
+                }
+                // DMC not implemented yet (bit 4)
                 // Frame interrupt and DMC interrupt flags not implemented (bits 6-7)
                 status
             }
@@ -360,10 +360,10 @@ impl Apu {
             0x400B => self.triangle.write_register_3(data),
 
             // Noise ($400C-$400F)
-            0x400C => self.noise_envelope = data,
-            0x400D => self.noise_unused = data,
-            0x400E => self.noise_mode_period = data,
-            0x400F => self.noise_length_counter = data,
+            0x400C => self.noise.write_register_0(data),
+            0x400D => self.noise.write_register_1(data),
+            0x400E => self.noise.write_register_2(data),
+            0x400F => self.noise.write_register_3(data),
 
             // DMC ($4010-$4013)
             0x4010 => self.dmc_flags_rate = data,
@@ -385,7 +385,8 @@ impl Apu {
                 self.pulse1.set_enabled((data & 0x01) != 0);
                 self.pulse2.set_enabled((data & 0x02) != 0);
                 self.triangle.set_enabled((data & 0x04) != 0);
-                // Noise, DMC not implemented yet (bits 3-4)
+                self.noise.set_enabled((data & 0x08) != 0);
+                // DMC not implemented yet (bit 4)
             }
 
             // $4016: Controller 1 - Not part of APU, handled separately

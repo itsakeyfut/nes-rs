@@ -20,8 +20,10 @@ fn test_apu_initialization() {
     assert!(!apu.triangle.enabled);
     assert_eq!(apu.triangle.linear_counter.counter, 0);
     assert_eq!(apu.triangle.length_counter.counter, 0);
+    // Noise channel should be initialized
+    assert!(!apu.noise.enabled);
+    assert_eq!(apu.noise.length_counter.counter, 0);
     // Other channels (stub registers)
-    assert_eq!(apu.noise_envelope, 0x00);
     assert_eq!(apu.dmc_flags_rate, 0x00);
     assert_eq!(apu.status_control, 0x00);
     assert_eq!(apu.frame_counter, 0x00);
@@ -178,15 +180,28 @@ fn test_read_triangle_registers_return_zero() {
 #[test]
 fn test_write_noise_registers() {
     let mut apu = Apu::new();
-    apu.write(0x400C, 0x30);
-    apu.write(0x400D, 0x00);
-    apu.write(0x400E, 0x07);
-    apu.write(0x400F, 0x10);
 
-    assert_eq!(apu.noise_envelope, 0x30);
-    assert_eq!(apu.noise_unused, 0x00);
-    assert_eq!(apu.noise_mode_period, 0x07);
-    assert_eq!(apu.noise_length_counter, 0x10);
+    // Enable noise channel first
+    apu.write(0x4015, 0x08);
+
+    apu.write(0x400C, 0x30); // Envelope with loop and constant volume=0
+    apu.write(0x400D, 0x00); // Unused
+    apu.write(0x400E, 0x87); // Mode 1 (bit 7 set), period index 7
+    apu.write(0x400F, 0x10); // Length counter index=2
+
+    // Verify envelope settings
+    assert!(apu.noise.envelope.loop_flag); // Bit 5 of 0x30
+    assert!(apu.noise.envelope.constant_volume); // Bit 4 of 0x30
+    assert_eq!(apu.noise.envelope.period, 0); // Bits 3-0 of 0x30
+
+    // Verify mode flag
+    assert!(apu.noise.mode); // Bit 7 of 0x87
+
+    // Verify timer period (from period table index 7)
+    assert_eq!(apu.noise.timer.period, 160);
+
+    // Verify channel is enabled
+    assert!(apu.noise.enabled);
 }
 
 #[test]
@@ -337,8 +352,10 @@ fn test_all_channels_can_be_written() {
     // Verify triangle channel (implemented)
     assert_eq!(apu.triangle.linear_counter.reload_value, 0x03);
 
-    // Verify other channels (stub registers)
-    assert_eq!(apu.noise_envelope, 0x04);
+    // Verify noise channel (implemented)
+    assert_eq!(apu.noise.envelope.period, 0x04);
+
+    // Verify DMC (stub registers)
     assert_eq!(apu.dmc_flags_rate, 0x05);
 }
 
