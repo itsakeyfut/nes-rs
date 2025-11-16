@@ -23,6 +23,7 @@ default = ["audio"]
 audio = ["dep:cpal"]
 
 [dev-dependencies]
+criterion = { version = "0.7", features = ["html_reports"] }
 
 [lib]
 name = "nes_rs"
@@ -35,6 +36,14 @@ path = "src/main.rs"
 [[example]]
 name = "audio_test"
 required-features = ["audio"]
+
+[[bench]]
+name = "cpu_bench"
+harness = false
+
+[[bench]]
+name = "ppu_bench"
+harness = false
 
 # Profile for development builds
 [profile.dev]
@@ -58,3 +67,9 @@ panic = 'abort'        # Abort on panic (smaller binary)
 incremental = false    # No incremental for release
 codegen-units = 1      # Single unit for better optimization
 strip = true           # Strip symbols for smaller binary
+
+# Profile for benchmarking and profiling
+[profile.bench]
+inherits = "release"
+debug = true           # Keep debug info for profiling tools
+strip = false          # Don't strip symbols for profiling
