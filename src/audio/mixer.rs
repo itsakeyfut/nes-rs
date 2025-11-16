@@ -65,7 +65,7 @@ impl Mixer {
     ///
     /// # Returns
     ///
-    /// Mixed audio sample as f32 in range [-1.0, 1.0]
+    /// Mixed audio sample as f32 in range [0.0, 1.0]
     pub fn mix(&self, pulse1: u8, pulse2: u8, triangle: u8, noise: u8, dmc: u8) -> f32 {
         // Mix pulse channels using non-linear formula
         let pulse_out = self.mix_pulse(pulse1, pulse2);
@@ -74,13 +74,13 @@ impl Mixer {
         let tnd_out = self.mix_tnd(triangle, noise, dmc);
 
         // Combine and apply volume.
-        // NES formulas yield ~[0.0, 1.0], so map to [-1.0, 1.0] with 2x-1.
-        // This ensures silence (0.0) maps to 0.0, avoiding DC offset.
+        // NES formulas yield ~[0.0, 1.0], and we use this range directly.
+        // This ensures silence (0.0) maps to 0.0, avoiding DC offset and pops.
         let mixed = pulse_out + tnd_out;
-        let output = (mixed * 2.0 - 1.0) * self.volume;
+        let output = mixed * self.volume;
 
-        // Clamp to valid range
-        output.clamp(-1.0, 1.0)
+        // Clamp to valid range [0.0, 1.0]
+        output.clamp(0.0, 1.0)
     }
 
     /// Mix pulse channels using the NES non-linear formula
@@ -152,7 +152,7 @@ impl Mixer {
     ///
     /// # Returns
     ///
-    /// Mixed audio sample as f32 in range [-1.0, 1.0]
+    /// Mixed audio sample as f32 in range [0.0, 1.0]
     #[allow(dead_code)]
     #[allow(clippy::too_many_arguments)]
     pub fn mix_with_channel_volumes(
@@ -211,16 +211,16 @@ mod tests {
     fn test_mix_silence() {
         let mixer = Mixer::new();
         let output = mixer.mix(0, 0, 0, 0, 0);
-        // NES formulas return 0.0 when all channels are 0, which maps to -1.0 in [-1, 1] range
-        assert_eq!(output, -1.0);
+        // Silence (all channels at 0) should map to 0.0 to avoid DC offset
+        assert_eq!(output, 0.0);
     }
 
     #[test]
     fn test_mix_pulse_only() {
         let mixer = Mixer::new();
         let output = mixer.mix(15, 15, 0, 0, 0);
-        // Output should be non-zero
-        assert!(output > -1.0);
+        // Output should be non-zero and positive
+        assert!(output > 0.0);
         assert!(output <= 1.0);
     }
 
@@ -228,8 +228,8 @@ mod tests {
     fn test_mix_all_channels() {
         let mixer = Mixer::new();
         let output = mixer.mix(15, 15, 15, 15, 127);
-        // Output should be in valid range
-        assert!(output >= -1.0);
+        // Output should be in valid range [0.0, 1.0]
+        assert!(output >= 0.0);
         assert!(output <= 1.0);
     }
 

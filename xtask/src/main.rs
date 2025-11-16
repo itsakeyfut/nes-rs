@@ -156,7 +156,14 @@ fn run_fmt(check: bool) -> Result<()> {
 
 fn run_clippy(fix: bool) -> Result<()> {
     let mut cmd = Command::new("cargo");
-    cmd.arg("clippy").arg("--all-targets").arg("--all-features");
+    cmd.arg("clippy").arg("--all-targets");
+
+    // Use --no-default-features in CI to avoid ALSA dependency issues
+    if std::env::var("CI").is_ok() {
+        cmd.arg("--no-default-features");
+    } else {
+        cmd.arg("--all-features");
+    }
 
     if fix {
         cmd.arg("--fix");
@@ -179,10 +186,20 @@ fn run_build(release: bool) -> Result<()> {
 }
 
 fn run_test(doc: bool, ignored: bool, cpu: bool, ppu: bool, memory: bool) -> Result<()> {
+    let use_no_default_features = std::env::var("CI").is_ok();
+
     if doc {
         // Run doc tests
         let mut cmd = Command::new("cargo");
-        cmd.arg("test").arg("--all-features").arg("--doc");
+        cmd.arg("test");
+
+        if use_no_default_features {
+            cmd.arg("--no-default-features");
+        } else {
+            cmd.arg("--all-features");
+        }
+
+        cmd.arg("--doc");
 
         if ignored {
             cmd.arg("--").arg("--ignored");
@@ -198,7 +215,13 @@ fn run_test(doc: bool, ignored: bool, cpu: bool, ppu: bool, memory: bool) -> Res
     if module_count == 0 {
         // Run all tests
         let mut cmd = Command::new("cargo");
-        cmd.arg("test").arg("--all-features");
+        cmd.arg("test");
+
+        if use_no_default_features {
+            cmd.arg("--no-default-features");
+        } else {
+            cmd.arg("--all-features");
+        }
 
         if ignored {
             cmd.arg("--").arg("--ignored");
@@ -224,10 +247,15 @@ fn run_test(doc: bool, ignored: bool, cpu: bool, ppu: bool, memory: bool) -> Res
         println!("{} Running {} tests...", "→".blue(), module_name.bold());
 
         let mut cmd = Command::new("cargo");
-        cmd.arg("test")
-            .arg("--all-features")
-            .arg("--lib")
-            .arg(module_path);
+        cmd.arg("test");
+
+        if use_no_default_features {
+            cmd.arg("--no-default-features");
+        } else {
+            cmd.arg("--all-features");
+        }
+
+        cmd.arg("--lib").arg(module_path);
 
         if ignored {
             cmd.arg("--").arg("--ignored");

@@ -248,7 +248,7 @@ impl Apu {
     ///
     /// # Returns
     ///
-    /// Mixed audio sample as f32 in range [0.0, ~2.0]
+    /// Mixed audio sample as f32 in range [0.0, ~1.0]
     pub fn output(&self) -> f32 {
         let pulse1_out = self.pulse1.output();
         let pulse2_out = self.pulse2.output();
@@ -272,7 +272,7 @@ impl Apu {
     ///
     /// # Returns
     ///
-    /// Mixed audio sample as f32 in range [0.0, ~2.0]
+    /// Mixed audio sample as f32 in range [0.0, ~1.0]
     fn mix_channels(&self, pulse1: u8, pulse2: u8, triangle: u8, noise: u8, dmc: u8) -> f32 {
         // Mix pulse channels using non-linear formula
         let pulse_out = self.mix_pulse(pulse1, pulse2);

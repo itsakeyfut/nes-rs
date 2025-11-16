@@ -32,6 +32,10 @@ path = "src/lib.rs"
 name = "nes-rs"
 path = "src/main.rs"
 
+[[example]]
+name = "audio_test"
+required-features = ["audio"]
+
 # Profile for development builds
 [profile.dev]
 opt-level = 0          # No optimization for faster compile times

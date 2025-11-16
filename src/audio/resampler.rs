@@ -89,7 +89,7 @@ impl Resampler {
     ///
     /// # Returns
     ///
-    /// Optional f32 sample in range [-1.0, 1.0]
+    /// Optional f32 sample in range [0.0, 1.0]
     pub fn get_output_sample(&mut self) -> Option<f32> {
         if self.time_position >= self.time_increment {
             // How far past the exact output-sample boundary we are, in input-sample units.
