@@ -35,3 +35,27 @@ pub const NOISE_PERIOD_TABLE: [u16; 16] = [
 pub const DMC_RATE_TABLE: [u16; 16] = [
     428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 85, 72, 54,
 ];
+
+/// Frame counter timing constants (in CPU cycles)
+/// 4-step mode sequence
+pub const FRAME_COUNTER_4_STEP_CYCLES: [u32; 4] = [
+    7457,  // Step 1: Quarter frame (envelope, linear counter)
+    14913, // Step 2: Half frame (envelope, linear counter, length counter, sweep)
+    22371, // Step 3: Quarter frame (envelope, linear counter)
+    29829, // Step 4: Half frame + IRQ (envelope, linear counter, length counter, sweep)
+];
+
+/// 5-step mode sequence
+pub const FRAME_COUNTER_5_STEP_CYCLES: [u32; 5] = [
+    7457,  // Step 1: Quarter frame (envelope, linear counter)
+    14913, // Step 2: Half frame (envelope, linear counter, length counter, sweep)
+    22371, // Step 3: Quarter frame (envelope, linear counter)
+    29829, // Step 4: Half frame (envelope, linear counter, length counter, sweep)
+    37281, // Step 5: Nothing
+];
+
+/// Total cycles for one frame in 4-step mode
+pub const FRAME_COUNTER_4_STEP_PERIOD: u32 = 29830;
+
+/// Total cycles for one frame in 5-step mode
+pub const FRAME_COUNTER_5_STEP_PERIOD: u32 = 37282;
