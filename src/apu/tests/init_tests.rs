@@ -23,8 +23,10 @@ fn test_apu_initialization() {
     // Noise channel should be initialized
     assert!(!apu.noise.enabled);
     assert_eq!(apu.noise.length_counter.counter, 0);
-    // Other channels (stub registers)
-    assert_eq!(apu.dmc_flags_rate, 0x00);
+    // DMC channel should be initialized
+    assert!(!apu.dmc.enabled);
+    assert_eq!(apu.dmc.output_level, 0);
+    // Control registers
     assert_eq!(apu.status_control, 0x00);
     assert_eq!(apu.frame_counter, 0x00);
 }
@@ -223,15 +225,18 @@ fn test_read_noise_registers_return_zero() {
 #[test]
 fn test_write_dmc_registers() {
     let mut apu = Apu::new();
-    apu.write(0x4010, 0x0F);
-    apu.write(0x4011, 0x40);
-    apu.write(0x4012, 0xC0);
-    apu.write(0x4013, 0xFF);
+    apu.write(0x4010, 0x0F); // Rate=15, no loop, no IRQ
+    apu.write(0x4011, 0x40); // Direct load = 0x40
+    apu.write(0x4012, 0xC0); // Sample address
+    apu.write(0x4013, 0xFF); // Sample length
 
-    assert_eq!(apu.dmc_flags_rate, 0x0F);
-    assert_eq!(apu.dmc_direct_load, 0x40);
-    assert_eq!(apu.dmc_sample_address, 0xC0);
-    assert_eq!(apu.dmc_sample_length, 0xFF);
+    // Verify DMC settings
+    assert!(!apu.dmc.irq_enabled); // Bit 7 of 0x0F is 0
+    assert!(!apu.dmc.loop_flag); // Bit 6 of 0x0F is 0
+    assert_eq!(apu.dmc.timer.period, 54); // Rate table index 15 = 54
+    assert_eq!(apu.dmc.output_level, 0x40); // Direct load value
+    assert_eq!(apu.dmc.sample_address, 0xC000 + (0xC0 << 6)); // $C000 + ($C0 * 64)
+    assert_eq!(apu.dmc.sample_length, (0xFF << 4) + 1); // ($FF * 16) + 1
 }
 
 #[test]
@@ -355,8 +360,8 @@ fn test_all_channels_can_be_written() {
     // Verify noise channel (implemented)
     assert_eq!(apu.noise.envelope.period, 0x04);
 
-    // Verify DMC (stub registers)
-    assert_eq!(apu.dmc_flags_rate, 0x05);
+    // Verify DMC channel (implemented)
+    assert_eq!(apu.dmc.timer.period, 254); // Rate table index 5 = 254
 }
 
 #[test]

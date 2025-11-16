@@ -65,15 +65,14 @@ mod components;
 mod constants;
 
 // Re-exports
-pub use channels::{NoiseChannel, PulseChannel, TriangleChannel};
+pub use channels::{DmcChannel, NoiseChannel, PulseChannel, TriangleChannel};
 
 // APU Main Structure
 // ============================================================================
 
 /// APU structure representing the Audio Processing Unit state
 ///
-/// Phase 7 implementation with full pulse, triangle, and noise channel support.
-/// DMC channel remains as stub for future implementation.
+/// Phase 7 implementation with full pulse, triangle, noise, and DMC channel support.
 pub struct Apu {
     // ========================================
     // Pulse Channels (Phase 7 - Implemented)
@@ -97,19 +96,10 @@ pub struct Apu {
     pub(crate) noise: NoiseChannel,
 
     // ========================================
-    // DMC Registers ($4010-$4013)
+    // DMC Channel (Phase 7 - Implemented)
     // ========================================
-    /// $4010: DMC - Flags and rate
-    dmc_flags_rate: u8,
-
-    /// $4011: DMC - Direct load
-    dmc_direct_load: u8,
-
-    /// $4012: DMC - Sample address
-    dmc_sample_address: u8,
-
-    /// $4013: DMC - Sample length
-    dmc_sample_length: u8,
+    /// DMC channel for sample playback
+    pub(crate) dmc: DmcChannel,
 
     // ========================================
     // Control Registers ($4015, $4017)
@@ -152,11 +142,8 @@ impl Apu {
             // Noise channel (Phase 7 - Implemented)
             noise: NoiseChannel::new(),
 
-            // DMC
-            dmc_flags_rate: 0x00,
-            dmc_direct_load: 0x00,
-            dmc_sample_address: 0x00,
-            dmc_sample_length: 0x00,
+            // DMC channel (Phase 7 - Implemented)
+            dmc: DmcChannel::new(),
 
             // Control
             status_control: 0x00,
@@ -176,7 +163,7 @@ impl Apu {
     ///
     /// The APU runs at half the CPU clock speed, so this should be called
     /// every other CPU cycle, or the internal logic should handle the division.
-    /// For now, this clocks the pulse and triangle channel timers directly.
+    /// For now, this clocks all channel timers directly.
     pub fn clock(&mut self) {
         // The APU runs at half CPU speed (approximately 1.789773 MHz)
         // For accurate emulation, timer should be clocked every other CPU cycle
@@ -185,6 +172,7 @@ impl Apu {
         self.pulse2.clock_timer();
         self.triangle.clock_timer();
         self.noise.clock_timer();
+        self.dmc.clock_timer();
     }
 
     /// Clock the frame sequencer quarter frame
@@ -256,6 +244,35 @@ impl Apu {
         self.noise.output()
     }
 
+    /// Get the output from DMC channel
+    pub fn dmc_output(&self) -> u8 {
+        self.dmc.output()
+    }
+
+    /// Check if the DMC needs to read a sample from memory
+    ///
+    /// Returns Some(address) if a sample byte should be read, None otherwise.
+    /// This should be called by the CPU/bus to check if DMC needs a memory read.
+    pub fn dmc_needs_sample(&self) -> Option<u16> {
+        self.dmc.needs_sample_read()
+    }
+
+    /// Load a sample byte into the DMC
+    ///
+    /// This should be called by the CPU/bus after reading the byte from memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `byte` - The sample byte read from CPU memory
+    pub fn dmc_load_sample(&mut self, byte: u8) {
+        self.dmc.load_sample_byte(byte);
+    }
+
+    /// Check if the DMC has an IRQ pending
+    pub fn dmc_irq_pending(&self) -> bool {
+        self.dmc.irq_pending()
+    }
+
     /// Read from an APU register
     ///
     /// # Arguments
@@ -313,8 +330,13 @@ impl Apu {
                 if self.noise.length_counter.is_active() {
                     status |= 0x08;
                 }
-                // DMC not implemented yet (bit 4)
-                // Frame interrupt and DMC interrupt flags not implemented (bits 6-7)
+                if self.dmc.is_active() {
+                    status |= 0x10;
+                }
+                // Frame interrupt flag not implemented (bit 6)
+                if self.dmc.irq_pending() {
+                    status |= 0x80;
+                }
                 status
             }
 
@@ -366,10 +388,10 @@ impl Apu {
             0x400F => self.noise.write_register_3(data),
 
             // DMC ($4010-$4013)
-            0x4010 => self.dmc_flags_rate = data,
-            0x4011 => self.dmc_direct_load = data,
-            0x4012 => self.dmc_sample_address = data,
-            0x4013 => self.dmc_sample_length = data,
+            0x4010 => self.dmc.write_register_0(data),
+            0x4011 => self.dmc.write_register_1(data),
+            0x4012 => self.dmc.write_register_2(data),
+            0x4013 => self.dmc.write_register_3(data),
 
             // $4014: OAM DMA - Not part of APU, handled by bus
             0x4014 => {}
@@ -386,7 +408,7 @@ impl Apu {
                 self.pulse2.set_enabled((data & 0x02) != 0);
                 self.triangle.set_enabled((data & 0x04) != 0);
                 self.noise.set_enabled((data & 0x08) != 0);
-                // DMC not implemented yet (bit 4)
+                self.dmc.set_enabled((data & 0x10) != 0);
             }
 
             // $4016: Controller 1 - Not part of APU, handled separately
