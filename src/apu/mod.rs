@@ -66,6 +66,7 @@ mod constants;
 
 // Re-exports
 pub use channels::{DmcChannel, NoiseChannel, PulseChannel, TriangleChannel};
+pub use components::{FrameCounter, FrameEvent, FrameMode};
 
 // APU Main Structure
 // ============================================================================
@@ -102,16 +103,19 @@ pub struct Apu {
     pub(crate) dmc: DmcChannel,
 
     // ========================================
-    // Control Registers ($4015, $4017)
+    // Frame Counter (Phase 7 - Implemented)
+    // ========================================
+    /// Frame counter for clocking envelopes and length counters
+    frame_counter: FrameCounter,
+
+    // ========================================
+    // Control Registers ($4015)
     // ========================================
     /// $4015: Status/Control - Enable/disable channels
     ///
     /// Read: Status of each channel (length counter > 0)
     /// Write: Enable/disable channels
     status_control: u8,
-
-    /// $4017: Frame Counter - Controls the frame sequencer
-    frame_counter: u8,
 }
 
 impl Apu {
@@ -145,9 +149,11 @@ impl Apu {
             // DMC channel (Phase 7 - Implemented)
             dmc: DmcChannel::new(),
 
+            // Frame counter (Phase 7 - Implemented)
+            frame_counter: FrameCounter::new(),
+
             // Control
             status_control: 0x00,
-            frame_counter: 0x00,
         }
     }
 
@@ -164,7 +170,28 @@ impl Apu {
     /// The APU runs at half the CPU clock speed, so this should be called
     /// every other CPU cycle, or the internal logic should handle the division.
     /// For now, this clocks all channel timers directly.
+    ///
+    /// This also clocks the frame counter, which generates quarter-frame and
+    /// half-frame events to clock envelopes, linear counters, length counters,
+    /// and sweep units.
     pub fn clock(&mut self) {
+        // Clock the frame counter and handle generated events
+        let events = self.frame_counter.clock();
+        for event in events {
+            match event {
+                FrameEvent::QuarterFrame => {
+                    self.clock_quarter_frame();
+                }
+                FrameEvent::HalfFrame => {
+                    self.clock_half_frame();
+                }
+                FrameEvent::SetIrq => {
+                    // IRQ flag is already set in the frame counter
+                    // This event is just for notification
+                }
+            }
+        }
+
         // The APU runs at half CPU speed (approximately 1.789773 MHz)
         // For accurate emulation, timer should be clocked every other CPU cycle
         // For now, we'll clock every call
@@ -273,6 +300,11 @@ impl Apu {
         self.dmc.irq_pending()
     }
 
+    /// Check if the frame counter has an IRQ pending
+    pub fn frame_irq_pending(&self) -> bool {
+        self.frame_counter.irq_pending()
+    }
+
     /// Read from an APU register
     ///
     /// # Arguments
@@ -333,10 +365,18 @@ impl Apu {
                 if self.dmc.is_active() {
                     status |= 0x10;
                 }
-                // Frame interrupt flag not implemented (bit 6)
+                // Frame interrupt flag (bit 6)
+                if self.frame_counter.irq_pending() {
+                    status |= 0x40;
+                }
+                // DMC interrupt flag (bit 7)
                 if self.dmc.irq_pending() {
                     status |= 0x80;
                 }
+
+                // Reading $4015 clears the frame IRQ flag
+                self.frame_counter.clear_irq();
+
                 status
             }
 
@@ -417,7 +457,23 @@ impl Apu {
             // $4017: Frame Counter
             // Bit 6: IRQ inhibit flag
             // Bit 7: Sequencer mode (0 = 4-step, 1 = 5-step)
-            0x4017 => self.frame_counter = data,
+            0x4017 => {
+                let events = self.frame_counter.write_control(data);
+                // Handle any immediate events (5-step mode clocks immediately)
+                for event in events {
+                    match event {
+                        FrameEvent::QuarterFrame => {
+                            self.clock_quarter_frame();
+                        }
+                        FrameEvent::HalfFrame => {
+                            self.clock_half_frame();
+                        }
+                        FrameEvent::SetIrq => {
+                            // IRQ flag is already set in the frame counter
+                        }
+                    }
+                }
+            }
 
             _ => {}
         }
