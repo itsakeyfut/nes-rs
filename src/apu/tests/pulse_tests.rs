@@ -216,9 +216,10 @@ fn test_both_pulse_channels_work() {
     assert!(apu.pulse1_output() <= 15);
     assert!(apu.pulse2_output() <= 8);
 
-    // Mixed output should be sum (saturating)
+    // Mixed output should be a valid float
     let mixed = apu.output();
-    assert!(mixed <= 30);
+    assert!(mixed >= 0.0);
+    assert!(mixed <= 2.0);
 }
 
 #[test]
