@@ -264,8 +264,9 @@ impl CpuDebugger {
         output.push_str(&format!("Stack (SP = ${:02X}):\n", cpu.sp));
 
         // Show 64 bytes of stack memory around the current SP
-        // The top of stack is at SP + 1 (SP points to next free location)
-        let top = 0x0100u16 + (cpu.sp as u16).wrapping_add(1);
+        // The top of stack is at $0100 + ((SP + 1) & 0xFF)
+        // Wrap in 8-bit space to keep top in $0100-$01FF for all SP values
+        let top = 0x0100u16 + (cpu.sp.wrapping_add(1) as u16);
         let start = top.saturating_sub(48).max(0x0100); // Show some context before
 
         for row in 0..4 {
@@ -370,5 +371,31 @@ mod tests {
         assert!(formatted.contains("X:10"));
         assert!(formatted.contains("Y:20"));
         assert!(formatted.contains("SP:FD"));
+    }
+
+    #[test]
+    fn test_dump_stack_sp_edge_cases() {
+        use crate::bus::Bus;
+
+        let debugger = CpuDebugger::new();
+        let mut cpu = crate::cpu::Cpu::new();
+        let mut bus = Bus::new();
+
+        // Test SP = 0xFF (empty stack)
+        cpu.sp = 0xFF;
+        let dump = debugger.dump_stack(&cpu, &mut bus);
+        // Should contain addresses in stack page only
+        assert!(dump.contains("$0100"));
+        assert!(!dump.contains("$0200")); // Should not go outside stack page
+
+        // Test SP = 0x00 (full stack)
+        cpu.sp = 0x00;
+        let dump = debugger.dump_stack(&cpu, &mut bus);
+        assert!(dump.contains("$0100"));
+
+        // Test normal SP
+        cpu.sp = 0xFD;
+        let dump = debugger.dump_stack(&cpu, &mut bus);
+        assert!(dump.contains("$01"));
     }
 }
