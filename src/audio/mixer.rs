@@ -73,9 +73,11 @@ impl Mixer {
         // Mix triangle, noise, and DMC using non-linear formula
         let tnd_out = self.mix_tnd(triangle, noise, dmc);
 
-        // Combine and apply volume
-        // Output is in range [0.0, ~2.0], so we normalize to [-1.0, 1.0]
-        let output = (pulse_out + tnd_out - 1.0) * self.volume;
+        // Combine and apply volume.
+        // NES formulas yield ~[0.0, 1.0], so map to [-1.0, 1.0] with 2x-1.
+        // This ensures silence (0.0) maps to 0.0, avoiding DC offset.
+        let mixed = pulse_out + tnd_out;
+        let output = (mixed * 2.0 - 1.0) * self.volume;
 
         // Clamp to valid range
         output.clamp(-1.0, 1.0)
@@ -209,6 +211,7 @@ mod tests {
     fn test_mix_silence() {
         let mixer = Mixer::new();
         let output = mixer.mix(0, 0, 0, 0, 0);
+        // NES formulas return 0.0 when all channels are 0, which maps to -1.0 in [-1, 1] range
         assert_eq!(output, -1.0);
     }
 

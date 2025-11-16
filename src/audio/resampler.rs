@@ -92,8 +92,12 @@ impl Resampler {
     /// Optional f32 sample in range [-1.0, 1.0]
     pub fn get_output_sample(&mut self) -> Option<f32> {
         if self.time_position >= self.time_increment {
-            // Calculate interpolation factor
-            let frac = (self.time_position % self.time_increment) / self.time_increment;
+            // How far past the exact output-sample boundary we are, in input-sample units.
+            let overshoot = (self.time_position - self.time_increment).clamp(0.0, 1.0);
+
+            // Fraction between prev_sample (0.0) and current_sample (1.0) where the
+            // boundary lies: 1.0 means exactly at current_sample, 0.0 at prev_sample.
+            let frac = 1.0 - overshoot;
 
             // Linear interpolation
             let sample = self.prev_sample + (self.current_sample - self.prev_sample) * frac as f32;
