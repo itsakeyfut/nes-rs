@@ -28,6 +28,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
+    #[inline]
     pub fn and(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.a &= value;
@@ -53,6 +54,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
+    #[inline]
     pub fn ora(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.a |= value;
@@ -79,6 +81,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
+    #[inline]
     pub fn eor(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.a ^= value;
@@ -116,6 +119,7 @@ impl Cpu {
     /// # Note
     /// BIT instruction does not support immediate addressing mode.
     /// It always reads from memory, never from an immediate value.
+    #[inline]
     pub fn bit(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
 
