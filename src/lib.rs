@@ -8,6 +8,7 @@ pub mod audio;
 pub mod bus;
 pub mod cartridge;
 pub mod cpu;
+pub mod debug;
 pub mod display;
 pub mod input;
 pub mod ppu;
@@ -20,6 +21,11 @@ pub use audio::{AudioConfig, AudioOutput, AudioSystem, Mixer};
 pub use bus::{Bus, MemoryMappedDevice};
 pub use cartridge::{Cartridge, INesError, INesHeader, Mapper, Mirroring};
 pub use cpu::Cpu;
+pub use debug::{
+    disassemble_count, disassemble_instruction, disassemble_range, CpuDebugger, CpuState, Debugger,
+    DisassembledInstruction, LogLevel, Logger, MemoryRegion, MemoryViewer, PpuDebugger, PpuState,
+    SpriteInfo, TraceEntry,
+};
 pub use display::{FrameBuffer, WindowConfig};
 pub use input::{Controller, ControllerIO};
 pub use ppu::Ppu;
