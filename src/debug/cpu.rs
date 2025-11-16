@@ -271,10 +271,22 @@ impl CpuDebugger {
 
         for row in 0..4 {
             let base_addr = start + (row * 16);
+
+            // Ensure we don't read beyond the stack page
+            if base_addr > 0x01FF {
+                break;
+            }
+
             output.push_str(&format!("  ${:04X}: ", base_addr));
 
             for col in 0..16 {
                 let addr = base_addr + col;
+
+                // Stop if we've reached the end of the stack page
+                if addr > 0x01FF {
+                    break;
+                }
+
                 let value = bus.read(addr);
 
                 // Highlight the current stack pointer position (top of stack)
