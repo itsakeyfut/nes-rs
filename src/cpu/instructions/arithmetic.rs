@@ -25,6 +25,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
+    #[inline]
     pub fn adc(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         let carry = if self.get_carry() { 1 } else { 0 };
@@ -68,6 +69,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
+    #[inline]
     pub fn sbc(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
 
@@ -109,6 +111,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from and write to
     /// * `addr_result` - The addressing result containing the memory address
+    #[inline]
     pub fn inc(&self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = bus.read(addr_result.address);
         let result = value.wrapping_add(1);
@@ -132,6 +135,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from and write to
     /// * `addr_result` - The addressing result containing the memory address
+    #[inline]
     pub fn dec(&self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = bus.read(addr_result.address);
         let result = value.wrapping_sub(1);
@@ -155,6 +159,7 @@ impl Cpu {
     /// Wraps around from 0xFF to 0x00.
     ///
     /// Flags affected: Z, N
+    #[inline]
     pub fn inx(&mut self) {
         self.x = self.x.wrapping_add(1);
         self.update_zero_and_negative_flags(self.x);
@@ -166,6 +171,7 @@ impl Cpu {
     /// Wraps around from 0xFF to 0x00.
     ///
     /// Flags affected: Z, N
+    #[inline]
     pub fn iny(&mut self) {
         self.y = self.y.wrapping_add(1);
         self.update_zero_and_negative_flags(self.y);
@@ -177,6 +183,7 @@ impl Cpu {
     /// Wraps around from 0x00 to 0xFF.
     ///
     /// Flags affected: Z, N
+    #[inline]
     pub fn dex(&mut self) {
         self.x = self.x.wrapping_sub(1);
         self.update_zero_and_negative_flags(self.x);
@@ -188,6 +195,7 @@ impl Cpu {
     /// Wraps around from 0x00 to 0xFF.
     ///
     /// Flags affected: Z, N
+    #[inline]
     pub fn dey(&mut self) {
         self.y = self.y.wrapping_sub(1);
         self.update_zero_and_negative_flags(self.y);

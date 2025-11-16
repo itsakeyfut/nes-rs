@@ -21,6 +21,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
+    #[inline]
     pub fn lda(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.a = value;
@@ -37,6 +38,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
+    #[inline]
     pub fn ldx(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.x = value;
@@ -53,6 +55,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to read from
     /// * `addr_result` - The addressing result containing the memory address or immediate value
+    #[inline]
     pub fn ldy(&mut self, bus: &mut Bus, addr_result: &AddressingResult) {
         let value = self.read_operand(bus, addr_result);
         self.y = value;
@@ -75,6 +78,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to write to
     /// * `addr_result` - The addressing result containing the memory address
+    #[inline]
     pub fn sta(&self, bus: &mut Bus, addr_result: &AddressingResult) {
         bus.write(addr_result.address, self.a);
     }
@@ -89,6 +93,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to write to
     /// * `addr_result` - The addressing result containing the memory address
+    #[inline]
     pub fn stx(&self, bus: &mut Bus, addr_result: &AddressingResult) {
         bus.write(addr_result.address, self.x);
     }
@@ -103,6 +108,7 @@ impl Cpu {
     /// # Arguments
     /// * `bus` - The memory bus to write to
     /// * `addr_result` - The addressing result containing the memory address
+    #[inline]
     pub fn sty(&self, bus: &mut Bus, addr_result: &AddressingResult) {
         bus.write(addr_result.address, self.y);
     }
