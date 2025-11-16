@@ -33,6 +33,7 @@
 // - Different PRG bank size affects the fixed bank location
 
 use crate::cartridge::{Cartridge, Mapper, Mirroring};
+use std::cell::Cell;
 
 /// PRG-ROM bank size (16KB)
 const PRG_BANK_SIZE: usize = 16 * 1024;
@@ -66,9 +67,9 @@ pub struct Mapper10 {
 
     // Latch state
     /// Latch 0 state (false = $FD, true = $FE)
-    latch_0: bool,
+    latch_0: Cell<bool>,
     /// Latch 1 state (false = $FD, true = $FE)
-    latch_1: bool,
+    latch_1: Cell<bool>,
 
     // Derived state
     /// Number of 16KB PRG-ROM banks
@@ -89,6 +90,14 @@ impl Mapper10 {
         let prg_banks = prg_rom_size / PRG_BANK_SIZE;
         let chr_banks = chr_rom_size / CHR_BANK_SIZE;
 
+        // Validate that we have at least one bank of each type
+        assert!(
+            prg_banks > 0 && chr_banks > 0,
+            "Mapper10 requires at least one PRG and CHR bank (got {} PRG, {} CHR)",
+            prg_banks,
+            chr_banks
+        );
+
         Mapper10 {
             prg_rom: cartridge.prg_rom,
             chr_rom: cartridge.chr_rom,
@@ -98,8 +107,8 @@ impl Mapper10 {
             chr_bank_1_fd: 0,
             chr_bank_1_fe: 0,
             mirroring: cartridge.mirroring,
-            latch_0: false, // Start with $FD
-            latch_1: false, // Start with $FD
+            latch_0: Cell::new(false), // Start with $FD
+            latch_1: Cell::new(false), // Start with $FD
             prg_banks,
             chr_banks,
         }
@@ -107,7 +116,7 @@ impl Mapper10 {
 
     /// Get the current CHR bank for $0000-$0FFF
     fn get_chr_bank_0(&self) -> u8 {
-        if self.latch_0 {
+        if self.latch_0.get() {
             self.chr_bank_0_fe
         } else {
             self.chr_bank_0_fd
@@ -116,29 +125,29 @@ impl Mapper10 {
 
     /// Get the current CHR bank for $1000-$1FFF
     fn get_chr_bank_1(&self) -> u8 {
-        if self.latch_1 {
+        if self.latch_1.get() {
             self.chr_bank_1_fe
         } else {
             self.chr_bank_1_fd
         }
     }
 
-    /// Update latch based on PPU read address
-    fn update_latch(&mut self, address: u16) {
+    /// Update latch based on PPU access address
+    fn update_latch(&self, address: u16) {
         match address {
             // Latch 0 (for $0000-$0FFF)
             0x0FD8..=0x0FDF => {
-                self.latch_0 = false; // Set to $FD
+                self.latch_0.set(false); // Set to $FD
             }
             0x0FE8..=0x0FEF => {
-                self.latch_0 = true; // Set to $FE
+                self.latch_0.set(true); // Set to $FE
             }
             // Latch 1 (for $1000-$1FFF)
             0x1FD8..=0x1FDF => {
-                self.latch_1 = false; // Set to $FD
+                self.latch_1.set(false); // Set to $FD
             }
             0x1FE8..=0x1FEF => {
-                self.latch_1 = true; // Set to $FE
+                self.latch_1.set(true); // Set to $FE
             }
             _ => {}
         }
@@ -199,6 +208,9 @@ impl Mapper for Mapper10 {
     }
 
     fn ppu_read(&self, address: u16) -> u8 {
+        // Update latches based on address (this is the critical behavior for MMC4)
+        self.update_latch(address);
+
         match address {
             0x0000..=0x0FFF => {
                 let offset = address as usize;
@@ -252,8 +264,8 @@ mod tests {
         assert_eq!(mapper.prg_banks, 8);
         assert_eq!(mapper.chr_banks, 32);
         assert_eq!(mapper.prg_bank, 0);
-        assert!(!mapper.latch_0);
-        assert!(!mapper.latch_1);
+        assert!(!mapper.latch_0.get());
+        assert!(!mapper.latch_1.get());
     }
 
     #[test]
@@ -341,33 +353,33 @@ mod tests {
     #[test]
     fn test_latch_update_ranges() {
         let cartridge = create_test_cartridge(8, 32);
-        let mut mapper = Mapper10::new(cartridge);
+        let mapper = Mapper10::new(cartridge);
 
         // Test latch 0 FD range
-        assert!(!mapper.latch_0);
+        assert!(!mapper.latch_0.get());
         mapper.update_latch(0x0FD8);
-        assert!(!mapper.latch_0);
+        assert!(!mapper.latch_0.get());
         mapper.update_latch(0x0FDF);
-        assert!(!mapper.latch_0);
+        assert!(!mapper.latch_0.get());
 
         // Test latch 0 FE range
         mapper.update_latch(0x0FE8);
-        assert!(mapper.latch_0);
+        assert!(mapper.latch_0.get());
         mapper.update_latch(0x0FEF);
-        assert!(mapper.latch_0);
+        assert!(mapper.latch_0.get());
 
         // Test latch 1 FD range
-        mapper.latch_1 = true;
+        mapper.latch_1.set(true);
         mapper.update_latch(0x1FD8);
-        assert!(!mapper.latch_1);
+        assert!(!mapper.latch_1.get());
         mapper.update_latch(0x1FDF);
-        assert!(!mapper.latch_1);
+        assert!(!mapper.latch_1.get());
 
         // Test latch 1 FE range
         mapper.update_latch(0x1FE8);
-        assert!(mapper.latch_1);
+        assert!(mapper.latch_1.get());
         mapper.update_latch(0x1FEF);
-        assert!(mapper.latch_1);
+        assert!(mapper.latch_1.get());
     }
 
     #[test]

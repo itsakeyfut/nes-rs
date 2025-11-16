@@ -120,6 +120,18 @@ impl Mapper4 {
         let prg_banks = prg_rom_size / PRG_BANK_SIZE;
         let chr_banks = chr_mem_size / CHR_1KB_BANK_SIZE;
 
+        // Validate bank counts to prevent underflow/divide-by-zero
+        assert!(
+            prg_banks >= 2,
+            "Mapper4 requires at least 2 PRG banks (16KB total, got {} banks)",
+            prg_banks
+        );
+        assert!(
+            chr_banks > 0,
+            "Mapper4 requires at least one CHR bank (got {} banks)",
+            chr_banks
+        );
+
         // CHR-RAM is indicated by all zeros in chr_rom
         let chr_is_ram = chr_mem_size == 8 * 1024 && cartridge.chr_rom.iter().all(|&b| b == 0);
 
