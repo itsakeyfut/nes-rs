@@ -264,6 +264,25 @@ impl SaveState {
         ppu.cycle = self.ppu_state.cycle;
         ppu.frame = self.ppu_state.frame;
 
+        // Validate array sizes before copying to prevent panics
+        if self.vram.len() != ppu.nametables.len()
+            || self.palette_ram.len() != ppu.palette_ram.len()
+            || self.oam.len() != ppu.oam.len()
+        {
+            let msg = format!(
+                "Save state memory size mismatch: vram={} (expected {}), palette={} (expected {}), oam={} (expected {})",
+                self.vram.len(),
+                ppu.nametables.len(),
+                self.palette_ram.len(),
+                ppu.palette_ram.len(),
+                self.oam.len(),
+                ppu.oam.len()
+            );
+            return Err(SaveStateError::Serialization(
+                serde_json::from_str::<()>(&msg).unwrap_err(),
+            ));
+        }
+
         ppu.nametables.copy_from_slice(&self.vram);
         ppu.palette_ram.copy_from_slice(&self.palette_ram);
         ppu.oam.copy_from_slice(&self.oam);

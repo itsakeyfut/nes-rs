@@ -31,6 +31,13 @@ pub struct Emulator {
     /// Bus (connects all components)
     bus: Bus,
 
+    /// Currently loaded cartridge
+    ///
+    /// Note: The cartridge is stored here but not yet fully integrated with the Bus.
+    /// When the mapper system is implemented, this will be properly wired into
+    /// the Bus's memory mapping system.
+    cartridge: Option<Cartridge>,
+
     /// Configuration
     config: EmulatorConfig,
 
@@ -68,6 +75,7 @@ impl Emulator {
         Emulator {
             cpu: Cpu::new(),
             bus: Bus::new(),
+            cartridge: None,
             config: EmulatorConfig::load_or_default(),
             rom_path: None,
             paused: false,
@@ -99,10 +107,19 @@ impl Emulator {
     /// ```
     pub fn load_rom<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let path = path.as_ref();
-        let _cartridge = Cartridge::from_ines_file(path)?;
+        let cartridge = Cartridge::from_ines_file(path)?;
 
-        // TODO: Insert cartridge into bus
-        // For now, just store the path
+        // Load PRG-ROM data into bus
+        // Note: This is a temporary solution until the mapper system is implemented.
+        // The Bus currently uses a fixed ROM array instead of a proper cartridge interface.
+        if !cartridge.prg_rom.is_empty() {
+            // Load PRG-ROM starting at offset 0x3FE0 in the Bus ROM array
+            // (which maps to $8000 in CPU address space)
+            self.bus.load_rom(&cartridge.prg_rom, 0x3FE0);
+        }
+
+        // Store the cartridge and path
+        self.cartridge = Some(cartridge);
         self.rom_path = Some(path.to_path_buf());
 
         // Add to recent ROMs list
