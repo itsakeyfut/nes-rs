@@ -631,6 +631,29 @@ impl Bus {
     pub fn ppu_mut(&mut self) -> &mut Ppu {
         &mut self.ppu
     }
+
+    /// Get a reference to the RAM contents (for save states)
+    ///
+    /// # Returns
+    ///
+    /// A reference to the internal RAM (2KB)
+    pub fn ram_contents(&self) -> &[u8; 2048] {
+        &self.ram
+    }
+
+    /// Restore RAM contents (for save states)
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The RAM contents to restore (2KB)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the data slice is not exactly 2048 bytes
+    pub fn restore_ram_contents(&mut self, data: &[u8]) {
+        assert_eq!(data.len(), 2048, "RAM data must be exactly 2048 bytes");
+        self.ram.copy_from_slice(data);
+    }
 }
 
 impl Default for Bus {

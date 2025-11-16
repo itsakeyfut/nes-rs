@@ -10,6 +10,7 @@ pub mod cartridge;
 pub mod cpu;
 pub mod debug;
 pub mod display;
+pub mod emulator;
 pub mod input;
 pub mod ppu;
 pub mod ram;
@@ -27,6 +28,7 @@ pub use debug::{
     SpriteInfo, TraceEntry,
 };
 pub use display::{FrameBuffer, WindowConfig};
+pub use emulator::{Emulator, EmulatorConfig, SaveState, SaveStateError, SpeedMode};
 pub use input::{Controller, ControllerIO};
 pub use ppu::Ppu;
 pub use ram::Ram;
