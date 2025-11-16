@@ -257,23 +257,27 @@ impl CpuDebugger {
     ///
     /// # Returns
     ///
-    /// A hex dump of the stack contents
+    /// A hex dump of the stack contents around the current stack pointer
     pub fn dump_stack(&self, cpu: &Cpu, bus: &mut Bus) -> String {
         let mut output = String::new();
 
         output.push_str(&format!("Stack (SP = ${:02X}):\n", cpu.sp));
 
-        // Show 64 bytes of stack memory
+        // Show 64 bytes of stack memory around the current SP
+        // The top of stack is at SP + 1 (SP points to next free location)
+        let top = 0x0100u16 + (cpu.sp as u16).wrapping_add(1);
+        let start = top.saturating_sub(48).max(0x0100); // Show some context before
+
         for row in 0..4 {
-            let base_addr = 0x0100 + (row * 16);
+            let base_addr = start + (row * 16);
             output.push_str(&format!("  ${:04X}: ", base_addr));
 
             for col in 0..16 {
                 let addr = base_addr + col;
                 let value = bus.read(addr);
 
-                // Highlight the current stack pointer position
-                if (addr & 0xFF) == cpu.sp as u16 {
+                // Highlight the current stack pointer position (top of stack)
+                if addr == top {
                     output.push_str(&format!("[{:02X}] ", value));
                 } else {
                     output.push_str(&format!("{:02X} ", value));

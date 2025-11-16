@@ -150,7 +150,7 @@ impl Debugger {
     ///
     /// # Returns
     ///
-    /// A slice containing all breakpoint addresses
+    /// A vector containing all breakpoint addresses
     pub fn breakpoints(&self) -> Vec<u16> {
         self.breakpoints.iter().copied().collect()
     }
@@ -193,9 +193,11 @@ impl Debugger {
     }
 
     /// Execute one instruction and pause (step mode)
+    ///
+    /// This allows exactly one instruction to execute even if the debugger
+    /// is currently paused, then re-enters the paused state.
     pub fn step(&mut self) {
         self.step_mode = true;
-        self.paused = false;
     }
 
     /// Called before executing each CPU instruction
@@ -216,8 +218,15 @@ impl Debugger {
             return true;
         }
 
-        // Check if we hit a breakpoint
-        if self.should_break(cpu) {
+        let stepping = self.step_mode;
+
+        // If we're not stepping and already paused, don't execute further instructions
+        if self.paused && !stepping {
+            return false;
+        }
+
+        // In normal run mode (not single-step), honor breakpoints
+        if !stepping && self.should_break(cpu) {
             self.pause();
             return false;
         }
@@ -228,14 +237,14 @@ impl Debugger {
             self.logger.log_cpu_state(&state);
         }
 
-        // Handle step mode
-        if self.step_mode {
-            self.paused = true;
+        // If we were in step mode, consume it and ensure we pause again
+        // after this instruction has executed
+        if stepping {
             self.step_mode = false;
-            return false;
+            self.paused = true;
         }
 
-        !self.paused
+        true
     }
 
     /// Called after each PPU step
@@ -353,6 +362,117 @@ mod tests {
 
         debugger.step();
         assert!(debugger.step_mode);
+    }
+
+    #[test]
+    fn test_step_executes_one_instruction() {
+        use crate::bus::Bus;
+        use crate::cpu::Cpu;
+
+        let mut debugger = Debugger::new();
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
+
+        debugger.enable();
+
+        // Set up a simple program
+        bus.write(0x8000, 0xEA); // NOP
+        bus.write(0x8001, 0xEA); // NOP
+        cpu.pc = 0x8000;
+
+        // Start in paused state
+        debugger.pause();
+        assert!(debugger.is_paused());
+
+        // Calling before_instruction while paused should return false
+        assert!(!debugger.before_instruction(&cpu, &mut bus));
+        assert_eq!(cpu.pc, 0x8000);
+
+        // Call step() to request one instruction execution
+        debugger.step();
+
+        // before_instruction should now return true (allowing execution)
+        assert!(debugger.before_instruction(&cpu, &mut bus));
+
+        // Simulate instruction execution
+        cpu.pc = 0x8001;
+
+        // Should be paused again after the step
+        assert!(debugger.is_paused());
+        assert!(!debugger.step_mode);
+
+        // Next call should return false (paused)
+        assert!(!debugger.before_instruction(&cpu, &mut bus));
+    }
+
+    #[test]
+    fn test_step_over_breakpoint() {
+        use crate::bus::Bus;
+        use crate::cpu::Cpu;
+
+        let mut debugger = Debugger::new();
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
+
+        debugger.enable();
+
+        // Set up a program with a breakpoint
+        bus.write(0x8000, 0xEA); // NOP
+        bus.write(0x8001, 0xEA); // NOP
+        cpu.pc = 0x8000;
+
+        // Add breakpoint at current PC
+        debugger.add_breakpoint(0x8000);
+
+        // In normal mode, breakpoint should stop execution
+        assert!(!debugger.before_instruction(&cpu, &mut bus));
+        assert!(debugger.is_paused());
+
+        // Now step - this should execute the instruction at the breakpoint
+        debugger.step();
+        assert!(debugger.before_instruction(&cpu, &mut bus));
+
+        // Simulate executing the instruction
+        cpu.pc = 0x8001;
+
+        // Should be paused after the step
+        assert!(debugger.is_paused());
+    }
+
+    #[test]
+    fn test_normal_execution_with_breakpoint() {
+        use crate::bus::Bus;
+        use crate::cpu::Cpu;
+
+        let mut debugger = Debugger::new();
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new();
+
+        debugger.enable();
+
+        bus.write(0x8000, 0xEA);
+        cpu.pc = 0x8000;
+
+        // Add breakpoint
+        debugger.add_breakpoint(0x8000);
+
+        // Not paused initially
+        assert!(!debugger.is_paused());
+
+        // Hitting breakpoint should pause
+        assert!(!debugger.before_instruction(&cpu, &mut bus));
+        assert!(debugger.is_paused());
+    }
+
+    #[test]
+    fn test_resume_clears_step_mode() {
+        let mut debugger = Debugger::new();
+
+        debugger.step();
+        assert!(debugger.step_mode);
+
+        debugger.resume();
+        assert!(!debugger.step_mode);
         assert!(!debugger.is_paused());
     }
 }

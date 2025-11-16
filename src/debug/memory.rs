@@ -9,14 +9,15 @@ use crate::bus::Bus;
 use crate::ppu::Ppu;
 
 /// Memory region to view
+///
+/// Note: Pattern tables are stored in CHR ROM/RAM on the cartridge and
+/// should be accessed through the mapper interface, not the PPU memory viewer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryRegion {
     /// CPU address space ($0000-$FFFF)
     Cpu,
     /// PPU nametables ($2000-$2FFF)
     PpuNametables,
-    /// PPU pattern tables ($0000-$1FFF)
-    PpuPatternTables,
     /// PPU palette RAM ($3F00-$3F1F)
     PpuPalette,
     /// PPU OAM (Object Attribute Memory)
@@ -46,7 +47,12 @@ impl MemoryViewer {
     /// # Arguments
     ///
     /// * `bytes` - Number of bytes per row (typically 8, 16, or 32)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `bytes` is 0
     pub fn set_bytes_per_row(&mut self, bytes: usize) {
+        assert!(bytes > 0, "bytes_per_row must be greater than 0");
         self.bytes_per_row = bytes;
     }
 
@@ -161,7 +167,10 @@ impl MemoryViewer {
                 }
                 data
             }
-            _ => Vec::new(),
+            MemoryRegion::Cpu => {
+                // CPU memory is not accessible through PPU
+                Vec::new()
+            }
         };
 
         let rows = data.len().div_ceil(self.bytes_per_row);
@@ -431,5 +440,12 @@ mod tests {
         // Check that dump contains hex values
         assert!(dump.contains("00"));
         assert!(dump.contains("01"));
+    }
+
+    #[test]
+    #[should_panic(expected = "bytes_per_row must be greater than 0")]
+    fn test_bytes_per_row_zero_panics() {
+        let mut viewer = MemoryViewer::new();
+        viewer.set_bytes_per_row(0);
     }
 }

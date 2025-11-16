@@ -352,7 +352,7 @@ impl PpuDebugger {
         (0..64).map(|i| self.get_sprite_info(ppu, i)).collect()
     }
 
-    /// Get visible sprites (Y position not 0xFF)
+    /// Get visible sprites (Y position < 0xF0; sprites with Y >= 0xF0 are off-screen)
     ///
     /// # Arguments
     ///
