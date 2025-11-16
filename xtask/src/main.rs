@@ -178,6 +178,11 @@ fn run_build(release: bool) -> Result<()> {
     let mut cmd = Command::new("cargo");
     cmd.arg("build");
 
+    // Use --no-default-features in CI to avoid ALSA dependency issues
+    if std::env::var("CI").is_ok() {
+        cmd.arg("--no-default-features");
+    }
+
     if release {
         cmd.arg("--release");
     }
