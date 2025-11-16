@@ -237,18 +237,100 @@ impl Apu {
 
     /// Get the mixed output sample from all channels
     ///
-    /// Returns a value representing the mixed audio output.
-    /// The NES uses a non-linear mixing formula for pulse channels:
-    /// pulse_out = 95.88 / ((8128 / (pulse1 + pulse2)) + 100)
+    /// Returns a floating-point value representing the mixed audio output
+    /// using the NES non-linear mixing formula:
     ///
-    /// For now, this returns a simple digital mix (0-30 range).
-    pub fn output(&self) -> u8 {
+    /// ```text
+    /// pulse_out = 95.88 / (8128 / (pulse1 + pulse2) + 100)
+    /// tnd_out = 159.79 / (1 / (triangle/8227 + noise/12241 + dmc/22638) + 100)
+    /// output = pulse_out + tnd_out
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// Mixed audio sample as f32 in range [0.0, ~2.0]
+    pub fn output(&self) -> f32 {
         let pulse1_out = self.pulse1.output();
         let pulse2_out = self.pulse2.output();
+        let triangle_out = self.triangle.output();
+        let noise_out = self.noise.output();
+        let dmc_out = self.dmc.output();
 
-        // Simple linear mix for now
-        // In a full implementation, use the non-linear mixing formula
-        pulse1_out.saturating_add(pulse2_out)
+        // Use non-linear mixing formula
+        self.mix_channels(pulse1_out, pulse2_out, triangle_out, noise_out, dmc_out)
+    }
+
+    /// Mix all APU channels using the non-linear formula
+    ///
+    /// # Arguments
+    ///
+    /// * `pulse1` - Pulse channel 1 output (0-15)
+    /// * `pulse2` - Pulse channel 2 output (0-15)
+    /// * `triangle` - Triangle channel output (0-15)
+    /// * `noise` - Noise channel output (0-15)
+    /// * `dmc` - DMC channel output (0-127)
+    ///
+    /// # Returns
+    ///
+    /// Mixed audio sample as f32 in range [0.0, ~2.0]
+    fn mix_channels(&self, pulse1: u8, pulse2: u8, triangle: u8, noise: u8, dmc: u8) -> f32 {
+        // Mix pulse channels using non-linear formula
+        let pulse_out = self.mix_pulse(pulse1, pulse2);
+
+        // Mix triangle, noise, and DMC using non-linear formula
+        let tnd_out = self.mix_tnd(triangle, noise, dmc);
+
+        // Combine
+        pulse_out + tnd_out
+    }
+
+    /// Mix pulse channels using the NES non-linear formula
+    ///
+    /// Formula: pulse_out = 95.88 / (8128 / (pulse1 + pulse2) + 100)
+    ///
+    /// # Arguments
+    ///
+    /// * `pulse1` - Pulse channel 1 output (0-15)
+    /// * `pulse2` - Pulse channel 2 output (0-15)
+    ///
+    /// # Returns
+    ///
+    /// Mixed pulse output in range [0.0, ~1.0]
+    fn mix_pulse(&self, pulse1: u8, pulse2: u8) -> f32 {
+        let pulse_sum = pulse1 as f32 + pulse2 as f32;
+
+        if pulse_sum == 0.0 {
+            return 0.0;
+        }
+
+        95.88 / (8128.0 / pulse_sum + 100.0)
+    }
+
+    /// Mix triangle, noise, and DMC channels using the NES non-linear formula
+    ///
+    /// Formula: tnd_out = 159.79 / (1 / (triangle/8227 + noise/12241 + dmc/22638) + 100)
+    ///
+    /// # Arguments
+    ///
+    /// * `triangle` - Triangle channel output (0-15)
+    /// * `noise` - Noise channel output (0-15)
+    /// * `dmc` - DMC channel output (0-127)
+    ///
+    /// # Returns
+    ///
+    /// Mixed TND output in range [0.0, ~1.0]
+    fn mix_tnd(&self, triangle: u8, noise: u8, dmc: u8) -> f32 {
+        let triangle_val = triangle as f32 / 8227.0;
+        let noise_val = noise as f32 / 12241.0;
+        let dmc_val = dmc as f32 / 22638.0;
+
+        let tnd_sum = triangle_val + noise_val + dmc_val;
+
+        if tnd_sum == 0.0 {
+            return 0.0;
+        }
+
+        159.79 / (1.0 / tnd_sum + 100.0)
     }
 
     /// Get the output from pulse channel 1
