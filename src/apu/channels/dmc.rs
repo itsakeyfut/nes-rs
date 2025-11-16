@@ -156,14 +156,25 @@ impl DmcChannel {
 
     /// Clock the output unit (called when timer reaches zero)
     fn clock_output_unit(&mut self) {
-        // Only process if bits_remaining > 0
+        // If we've consumed all bits, try to reload the shift register
+        if self.bits_remaining == 0 {
+            if self.sample_buffer_empty {
+                self.silence_flag = true;
+            } else {
+                self.silence_flag = false;
+                self.shift_register = self.sample_buffer;
+                self.sample_buffer_empty = true;
+                self.bits_remaining = 8;
+            }
+        }
+
+        // Nothing to do if we still have no bits to output
         if self.bits_remaining == 0 {
             return;
         }
 
-        // If silence flag is clear, adjust output level
+        // If silence flag is clear, adjust output level based on current bit
         if !self.silence_flag {
-            // Get bit 0 of shift register
             let bit = self.shift_register & 0x01;
 
             if bit == 1 {
@@ -171,38 +182,25 @@ impl DmcChannel {
                 if self.output_level <= 125 {
                     self.output_level += 2;
                 }
-            } else {
+            } else if self.output_level >= 2 {
                 // Decrement output level if not at minimum
-                if self.output_level >= 2 {
-                    self.output_level -= 2;
-                }
+                self.output_level -= 2;
             }
         }
 
-        // Shift the register right
+        // Shift the register right and decrement bits remaining
         self.shift_register >>= 1;
         self.bits_remaining -= 1;
-
-        // If shift register is now empty, load a new byte
-        if self.bits_remaining == 0 {
-            self.bits_remaining = 8;
-
-            if self.sample_buffer_empty {
-                self.silence_flag = true;
-            } else {
-                self.silence_flag = false;
-                self.shift_register = self.sample_buffer;
-                self.sample_buffer_empty = true;
-
-                // Note: In real hardware, this would trigger a memory read
-                // For now, we'll need to handle this in the memory reader
-            }
-        }
     }
 
     /// Load a sample byte (called by memory reader)
     /// This should be called when the sample buffer is empty and bytes remain
     pub fn load_sample_byte(&mut self, byte: u8) {
+        // Guard against underflow (should not happen with proper usage)
+        if self.bytes_remaining == 0 {
+            return;
+        }
+
         self.sample_buffer = byte;
         self.sample_buffer_empty = false;
 
