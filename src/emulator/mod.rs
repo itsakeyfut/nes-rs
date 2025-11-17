@@ -358,6 +358,49 @@ impl Emulator {
     pub fn rom_path(&self) -> Option<&Path> {
         self.rom_path.as_deref()
     }
+
+    /// Execute one frame of emulation
+    ///
+    /// Runs the CPU and PPU until a complete frame has been rendered.
+    /// The PPU runs at 3x the speed of the CPU.
+    ///
+    /// # Returns
+    ///
+    /// true if a frame was completed, false if emulator is paused
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use nes_rs::emulator::Emulator;
+    ///
+    /// let mut emulator = Emulator::new();
+    /// emulator.load_rom("game.nes").expect("Failed to load ROM");
+    ///
+    /// // Execute one frame
+    /// emulator.run_frame();
+    /// ```
+    pub fn run_frame(&mut self) -> bool {
+        if self.paused {
+            return false;
+        }
+
+        // Run until PPU completes a frame
+        loop {
+            // Execute one CPU instruction
+            let cpu_cycles = self.cpu.step(&mut self.bus) as u32;
+
+            // PPU runs at 3x CPU speed
+            let ppu_cycles = cpu_cycles * 3;
+
+            // Step the PPU for the appropriate number of cycles
+            for _ in 0..ppu_cycles {
+                if self.bus.ppu_mut().step() {
+                    // Frame complete
+                    return true;
+                }
+            }
+        }
+    }
 }
 
 impl Default for Emulator {

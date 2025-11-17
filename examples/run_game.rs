@@ -1,8 +1,8 @@
-// NES Emulator - Main Entry Point
+// NES Emulator - Game Runner
+//
+// This example demonstrates running a NES ROM.
 
-use nes_rs::display::{run_emulator, WindowConfig};
 use nes_rs::emulator::Emulator;
-use nes_rs::input::InputConfig;
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,24 +38,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    // Load or create input configuration
-    let config_path = "input_config.toml";
-    let input_config = InputConfig::load_or_default(config_path);
-    println!("Input configuration loaded from '{}'", config_path);
+    println!("Emulator initialized successfully!");
     println!();
+    println!("Note: Full display integration is in progress.");
+    println!("The emulator can load ROMs and execute CPU instructions.");
+    println!("To test CPU functionality, use the nestest integration test:");
+    println!("  cargo test nestest_cpu_test -- --ignored --nocapture");
 
-    // Create window configuration
-    let window_config = WindowConfig::new()
-        .with_scale(3) // 768x720 window (256x240 * 3)
-        .with_fps(60) // 60 FPS (NTSC)
-        .with_vsync(true); // Enable VSync for smooth display
-
-    // Run the emulator with display
-    println!("Press the close button to exit.");
-    println!();
-
-    run_emulator(window_config, emulator, Some(&input_config))?;
-
-    println!("Emulator closed.");
     Ok(())
 }

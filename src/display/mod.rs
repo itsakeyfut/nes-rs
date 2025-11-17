@@ -15,4 +15,4 @@ pub mod window;
 pub use framebuffer::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH};
 pub use integration::copy_ppu_to_display;
 pub use palette::{palette_to_rgb, palette_to_rgba, NES_PALETTE};
-pub use window::{run_display, DisplayWindow, WindowConfig};
+pub use window::{run_display, run_emulator, DisplayWindow, EmulatorDisplayWindow, WindowConfig};

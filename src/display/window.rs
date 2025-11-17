@@ -4,6 +4,8 @@
 // using the winit and pixels crates.
 
 use super::framebuffer::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH};
+use super::integration::copy_ppu_to_display;
+use crate::emulator::Emulator;
 use crate::input::{ControllerIO, InputConfig, Player, UnifiedInputHandler};
 use pixels::{Pixels, SurfaceTexture};
 use std::sync::Arc;
@@ -344,6 +346,232 @@ pub fn run_display(
     Ok(())
 }
 
+/// Emulator display window - integrates emulator with display
+pub struct EmulatorDisplayWindow {
+    window: Option<Arc<Window>>,
+    pixels: Option<Pixels<'static>>,
+    config: WindowConfig,
+    frame_buffer: FrameBuffer,
+    last_frame_time: Instant,
+    input_handler: UnifiedInputHandler,
+    controller_io: ControllerIO,
+    emulator: Emulator,
+}
+
+impl EmulatorDisplayWindow {
+    /// Create a new emulator display window
+    pub fn new(config: WindowConfig, emulator: Emulator) -> Self {
+        Self {
+            window: None,
+            pixels: None,
+            config,
+            frame_buffer: FrameBuffer::new(),
+            last_frame_time: Instant::now(),
+            input_handler: UnifiedInputHandler::new(),
+            controller_io: ControllerIO::new(),
+            emulator,
+        }
+    }
+
+    /// Create a new emulator display window with custom input configuration
+    pub fn with_input_config(
+        config: WindowConfig,
+        emulator: Emulator,
+        input_config: &InputConfig,
+    ) -> Result<Self, String> {
+        let input_handler = UnifiedInputHandler::with_config(input_config)?;
+
+        Ok(Self {
+            window: None,
+            pixels: None,
+            config,
+            frame_buffer: FrameBuffer::new(),
+            last_frame_time: Instant::now(),
+            input_handler,
+            controller_io: ControllerIO::new(),
+            emulator,
+        })
+    }
+
+    /// Update controller states from current input state
+    fn update_controllers(&mut self) {
+        self.input_handler.update_gamepads();
+        let controller1 = self.input_handler.get_controller_state(Player::One);
+        let controller2 = self.input_handler.get_controller_state(Player::Two);
+        self.controller_io.set_controller1(controller1);
+        self.controller_io.set_controller2(controller2);
+    }
+
+    /// Execute one frame of emulation and render it
+    fn execute_and_render(&mut self) -> Result<(), pixels::Error> {
+        // Run one frame of emulation
+        self.emulator.run_frame();
+
+        // Copy PPU frame to display buffer
+        let ppu_frame = self.emulator.bus().ppu().frame();
+        copy_ppu_to_display(ppu_frame, &mut self.frame_buffer);
+
+        // Render to screen
+        if let Some(pixels) = &mut self.pixels {
+            let frame = pixels.frame_mut();
+            self.frame_buffer.to_rgba(frame);
+            pixels.render()?;
+        }
+
+        Ok(())
+    }
+
+    /// Check if enough time has passed for the next frame
+    fn should_render_frame(&mut self) -> bool {
+        let elapsed = self.last_frame_time.elapsed();
+        let frame_duration = self.config.frame_duration();
+
+        if elapsed >= frame_duration {
+            self.last_frame_time = Instant::now();
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl ApplicationHandler for EmulatorDisplayWindow {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+
+        // Create window
+        let window_attributes = Window::default_attributes()
+            .with_title(format!(
+                "NES Emulator - {}x{}",
+                self.config.window_width(),
+                self.config.window_height()
+            ))
+            .with_inner_size(LogicalSize::new(
+                self.config.window_width(),
+                self.config.window_height(),
+            ))
+            .with_resizable(false);
+
+        let window = event_loop
+            .create_window(window_attributes)
+            .expect("Failed to create window");
+
+        let window = Arc::new(window);
+        let window_size = window.inner_size();
+
+        let surface_texture =
+            SurfaceTexture::new(window_size.width, window_size.height, window.clone());
+
+        let pixels = Pixels::new(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32, surface_texture)
+            .expect("Failed to create pixel buffer");
+
+        self.window = Some(window);
+        self.pixels = Some(pixels);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        match event {
+            WindowEvent::CloseRequested => {
+                println!("Close requested, exiting...");
+                event_loop.exit();
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key,
+                        state,
+                        ..
+                    },
+                ..
+            } => {
+                match state {
+                    ElementState::Pressed => {
+                        self.input_handler.handle_key_press(physical_key);
+                    }
+                    ElementState::Released => {
+                        self.input_handler.handle_key_release(physical_key);
+                    }
+                }
+                self.update_controllers();
+            }
+            WindowEvent::RedrawRequested => {
+                // Execute emulation and render frame
+                if self.should_render_frame() {
+                    if let Err(err) = self.execute_and_render() {
+                        eprintln!("Render error: {}", err);
+                        event_loop.exit();
+                    }
+                }
+
+                // Request next frame
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.update_controllers();
+
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+/// Run the emulator with display
+///
+/// # Arguments
+/// * `config` - Window configuration
+/// * `emulator` - Initialized emulator with ROM loaded
+/// * `input_config` - Optional input configuration for custom mappings
+///
+/// # Returns
+/// Result indicating success or error
+pub fn run_emulator(
+    config: WindowConfig,
+    emulator: Emulator,
+    input_config: Option<&InputConfig>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let event_loop = EventLoop::new()?;
+
+    if config.vsync {
+        event_loop.set_control_flow(ControlFlow::Wait);
+    } else {
+        event_loop.set_control_flow(ControlFlow::Poll);
+    }
+
+    let mut display = if let Some(input_cfg) = input_config {
+        EmulatorDisplayWindow::with_input_config(config, emulator, input_cfg)
+            .map_err(|e| format!("Failed to apply input configuration: {}", e))?
+    } else {
+        EmulatorDisplayWindow::new(config, emulator)
+    };
+
+    println!("Starting emulator...");
+    println!("  Resolution: {}x{}", SCREEN_WIDTH, SCREEN_HEIGHT);
+    println!(
+        "  Window size: {}x{}",
+        config.window_width(),
+        config.window_height()
+    );
+    println!("  Scale: {}x", config.scale);
+    println!("  Target FPS: {}", config.target_fps);
+    println!("  VSync: {}", config.vsync);
+
+    event_loop.run_app(&mut display)?;
+
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
