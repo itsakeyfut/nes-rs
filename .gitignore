@@ -7,3 +7,11 @@
 
 # My Private Documents
 docs/
+
+# User configuration files
+recent_roms.toml
+input_config.toml
+
+# Save states and screenshots
+saves/
+screenshots/
