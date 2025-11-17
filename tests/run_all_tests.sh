@@ -113,7 +113,7 @@ RESULTS_FILE="test_results.txt"
 JSON_FILE="test_results.json"
 
 # Clear previous results
-> "$RESULTS_FILE"
+: > "$RESULTS_FILE"
 
 if [ "$JSON_OUTPUT" = true ]; then
     echo "{" > "$JSON_FILE"

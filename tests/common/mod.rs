@@ -88,14 +88,30 @@ pub fn load_rom(path: &Path) -> Result<Vec<u8>, String> {
 /// * `bus` - The bus to load the ROM into
 /// * `prg_rom` - The PRG-ROM data
 pub fn load_prg_rom(bus: &mut Bus, prg_rom: &[u8]) {
-    // Load at $8000 and mirror at $C000
-    for (i, &byte) in prg_rom.iter().enumerate() {
-        let offset = i as u16;
-        if offset < 0x4000 {
-            // First 16KB at $8000
-            bus.write(0x8000 + offset, byte);
-            // Mirror at $C000
-            bus.write(0xC000 + offset, byte);
+    match prg_rom.len() {
+        0x4000 => {
+            // NROM-128: 16KB PRG, mirrored at $C000
+            for (i, &byte) in prg_rom.iter().enumerate() {
+                let offset = i as u16;
+                bus.write(0x8000 + offset, byte);
+                bus.write(0xC000 + offset, byte);
+            }
+        }
+        0x8000 => {
+            // NROM-256: 32KB PRG, mapped linearly from $8000–$FFFF
+            for (i, &byte) in prg_rom.iter().enumerate() {
+                let offset = i as u16;
+                let addr = 0x8000u16.wrapping_add(offset);
+                bus.write(addr, byte);
+            }
+        }
+        _ => {
+            // Fallback: load as much as fits in $8000–$FFFF
+            for (i, &byte) in prg_rom.iter().take(0x8000).enumerate() {
+                let offset = i as u16;
+                let addr = 0x8000u16.wrapping_add(offset);
+                bus.write(addr, byte);
+            }
         }
     }
 }
@@ -230,4 +246,87 @@ pub fn format_result(result: &TestResult) -> String {
         TestResult::Timeout => "✗ TIMEOUT".to_string(),
         TestResult::Unknown => "? UNKNOWN".to_string(),
     }
+}
+
+/// Run a Blargg-style test ROM and check the result
+///
+/// Blargg's tests write ASCII result messages to $6004+
+/// and set $6000 to a status value:
+/// - $80 = running
+/// - $81 = need reset
+/// - $00-$7F = completed with result code (0 = passed)
+///
+/// # Arguments
+///
+/// * `rom_path` - Path to the ROM file as a string
+/// * `max_cycles` - Maximum number of CPU cycles before timeout
+///
+/// # Returns
+///
+/// Result containing a tuple of (passed: bool, message: String) or error message
+pub fn run_blargg_style_test(rom_path: &str, max_cycles: u64) -> Result<(bool, String), String> {
+    let path = Path::new(rom_path);
+    if !path.exists() {
+        return Err(format!("ROM file not found: {}", rom_path));
+    }
+
+    // Load ROM
+    let prg_rom = load_rom(path)?;
+
+    // Initialize CPU and Bus
+    let mut cpu = Cpu::new();
+    let mut bus = Bus::new();
+
+    // Load PRG-ROM
+    load_prg_rom(&mut bus, &prg_rom);
+
+    // Use reset vector
+    cpu.reset(&mut bus);
+
+    // Run test with timeout
+    while cpu.cycles < max_cycles {
+        cpu.step(&mut bus);
+
+        // Check test status ($6000)
+        // $80 = running, $81 = need reset, $00-$7F = completed with result code
+        let status = bus.read(0x6000);
+
+        // Handle "need reset" handshake ($81)
+        if status == 0x81 {
+            cpu.reset(&mut bus);
+            continue;
+        }
+
+        // Test is complete when status is $00-$7F
+        if status < 0x80 {
+            // Read result message from $6004
+            let mut message = String::new();
+            for i in 0..256 {
+                let addr = 0x6004u16 + i as u16;
+                let byte = bus.read(addr);
+                if byte == 0 {
+                    break;
+                }
+                if (0x20..=0x7E).contains(&byte) {
+                    message.push(byte as char);
+                }
+            }
+
+            // Status code 0 means passed, non-zero means failed
+            let passed = status == 0 || message.starts_with("Passed");
+
+            // If message is empty, use status code
+            if message.is_empty() {
+                message = if status == 0 {
+                    "Passed".to_string()
+                } else {
+                    format!("Failed with status code: {}", status)
+                };
+            }
+
+            return Ok((passed, message));
+        }
+    }
+
+    Err("Test timed out".to_string())
 }

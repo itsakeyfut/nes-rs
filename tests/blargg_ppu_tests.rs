@@ -10,75 +10,14 @@
 
 mod common;
 
-use common::{load_prg_rom, load_rom};
-use nes_rs::bus::Bus;
-use nes_rs::cpu::Cpu;
-use std::path::Path;
+use common::run_blargg_style_test;
 
 /// Run a Blargg PPU test ROM and check the result
 ///
-/// Blargg's PPU tests write ASCII result messages to $6004+
-/// and set $6000 to a non-zero value when complete.
+/// This is a thin wrapper around the common test runner that uses
+/// the standard timeout value for PPU tests.
 fn run_blargg_ppu_test(rom_path: &str) -> Result<(bool, String), String> {
-    let path = Path::new(rom_path);
-    if !path.exists() {
-        return Err(format!("ROM file not found: {}", rom_path));
-    }
-
-    // Load ROM
-    let prg_rom = load_rom(path)?;
-
-    // Initialize CPU and Bus (which includes PPU)
-    let mut cpu = Cpu::new();
-    let mut bus = Bus::new();
-
-    // Load PRG-ROM
-    load_prg_rom(&mut bus, &prg_rom);
-
-    // Use reset vector
-    cpu.reset(&mut bus);
-
-    // Run test with timeout
-    let max_cycles = 100_000_000u64;
-
-    while cpu.cycles < max_cycles {
-        cpu.step(&mut bus);
-
-        // Check test status ($6000)
-        // $80 = running, $81 = need reset, $00-$7F = completed with result code
-        let status = bus.read(0x6000);
-
-        // Test is complete when status is $00-$7F
-        if status < 0x80 {
-            // Read result message from $6004
-            let mut message = String::new();
-            for i in 0..256 {
-                let byte = bus.read(0x6004 + i);
-                if byte == 0 {
-                    break;
-                }
-                if (0x20..=0x7E).contains(&byte) {
-                    message.push(byte as char);
-                }
-            }
-
-            // Status code 0 means passed, non-zero means failed
-            let passed = status == 0 || message.starts_with("Passed");
-
-            // If message is empty, use status code
-            if message.is_empty() {
-                message = if status == 0 {
-                    "Passed".to_string()
-                } else {
-                    format!("Failed with status code: {}", status)
-                };
-            }
-
-            return Ok((passed, message));
-        }
-    }
-
-    Err("Test timed out".to_string())
+    run_blargg_style_test(rom_path, 100_000_000)
 }
 
 // ============================================================================
