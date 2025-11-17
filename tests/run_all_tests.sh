@@ -345,8 +345,8 @@ fi
 
 # Close JSON output
 if [ "$JSON_OUTPUT" = true ]; then
-    # Remove trailing comma from last test
-    sed -i '$ s/,$//' "$JSON_FILE"
+    # Remove trailing comma from last test (portable across GNU and BSD sed)
+    sed -i.bak '$ s/,$//' "$JSON_FILE" && rm -f "${JSON_FILE}.bak"
     echo "  ]," >> "$JSON_FILE"
     echo "  \"summary\": {" >> "$JSON_FILE"
     echo "    \"total\": $TOTAL_TESTS," >> "$JSON_FILE"
