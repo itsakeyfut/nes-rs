@@ -7,6 +7,7 @@
 
 use crate::bus::Bus;
 use crate::ppu::Ppu;
+use std::collections::HashMap;
 
 /// Memory region to view
 ///
@@ -24,12 +25,38 @@ pub enum MemoryRegion {
     PpuOam,
 }
 
+/// CPU memory region type for color coding
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CpuMemoryRegionType {
+    /// Internal RAM ($0000-$07FF)
+    Ram,
+    /// Stack ($0100-$01FF)
+    Stack,
+    /// PPU Registers ($2000-$3FFF)
+    PpuRegisters,
+    /// APU and I/O Registers ($4000-$4017)
+    ApuIo,
+    /// Cartridge space ($4020-$FFFF)
+    Cartridge,
+    /// Other/unmapped
+    Other,
+}
+
 /// Memory viewer
 ///
 /// Provides tools for inspecting and dumping memory contents.
 pub struct MemoryViewer {
     /// Number of bytes per row in hex dump
     bytes_per_row: usize,
+
+    /// Track modified bytes (address -> frame count when modified)
+    modified_bytes: HashMap<u16, u32>,
+
+    /// Current frame count for tracking modifications
+    frame_count: u32,
+
+    /// Number of frames to keep highlighting modified bytes
+    modification_highlight_frames: u32,
 }
 
 impl MemoryViewer {
@@ -39,7 +66,89 @@ impl MemoryViewer {
     ///
     /// A new memory viewer instance
     pub fn new() -> Self {
-        MemoryViewer { bytes_per_row: 16 }
+        MemoryViewer {
+            bytes_per_row: 16,
+            modified_bytes: HashMap::new(),
+            frame_count: 0,
+            modification_highlight_frames: 60, // Highlight for 1 second at 60 FPS
+        }
+    }
+
+    /// Determine the memory region type for a CPU address
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The CPU address
+    ///
+    /// # Returns
+    ///
+    /// The memory region type for color coding
+    #[inline(always)]
+    pub fn get_cpu_region_type(addr: u16) -> CpuMemoryRegionType {
+        match addr {
+            0x0000..=0x07FF => {
+                // Check if it's in the stack range
+                if (0x0100..=0x01FF).contains(&addr) {
+                    CpuMemoryRegionType::Stack
+                } else {
+                    CpuMemoryRegionType::Ram
+                }
+            }
+            0x0800..=0x1FFF => {
+                // RAM mirrors - map to actual address
+                let mirrored_addr = addr & 0x07FF;
+                if (0x0100..=0x01FF).contains(&mirrored_addr) {
+                    CpuMemoryRegionType::Stack
+                } else {
+                    CpuMemoryRegionType::Ram
+                }
+            }
+            0x2000..=0x3FFF => CpuMemoryRegionType::PpuRegisters,
+            0x4000..=0x4017 => CpuMemoryRegionType::ApuIo,
+            0x4020..=0xFFFF => CpuMemoryRegionType::Cartridge,
+            _ => CpuMemoryRegionType::Other,
+        }
+    }
+
+    /// Mark a byte as modified
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The address that was modified
+    pub fn mark_modified(&mut self, addr: u16) {
+        self.modified_bytes.insert(addr, self.frame_count);
+    }
+
+    /// Check if a byte was recently modified
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The address to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the byte was modified within the highlight window
+    pub fn is_recently_modified(&self, addr: u16) -> bool {
+        if let Some(&modified_frame) = self.modified_bytes.get(&addr) {
+            self.frame_count.saturating_sub(modified_frame) < self.modification_highlight_frames
+        } else {
+            false
+        }
+    }
+
+    /// Advance the frame counter and clean up old modifications
+    pub fn advance_frame(&mut self) {
+        self.frame_count = self.frame_count.wrapping_add(1);
+
+        // Clean up old entries
+        self.modified_bytes.retain(|_, &mut frame| {
+            self.frame_count.saturating_sub(frame) < self.modification_highlight_frames
+        });
+    }
+
+    /// Clear all modification tracking
+    pub fn clear_modifications(&mut self) {
+        self.modified_bytes.clear();
     }
 
     /// Set the number of bytes per row in hex dumps
