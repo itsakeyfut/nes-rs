@@ -342,6 +342,7 @@ impl DebugUI {
                     .show(ui, |ui| {
                         // Get next 10 instructions starting from PC
                         let instructions = crate::debug::disassemble_count(state.pc, 10, bus);
+                        let breakpoints = debugger.breakpoints();
 
                         for (idx, instr) in instructions.iter().enumerate() {
                             ui.horizontal(|ui| {
@@ -353,8 +354,7 @@ impl DebugUI {
                                 }
 
                                 // Check if there's a breakpoint at this address
-                                let has_breakpoint =
-                                    debugger.breakpoints().contains(&instr.address);
+                                let has_breakpoint = breakpoints.contains(&instr.address);
                                 if has_breakpoint {
                                     ui.colored_label(egui::Color32::RED, "●");
                                 } else {
