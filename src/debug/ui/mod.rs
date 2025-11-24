@@ -5,6 +5,7 @@
 
 mod cpu_panel;
 mod disasm_panel;
+mod execution_control_panel;
 mod log_panel;
 mod memory_panel;
 mod ppu_panel;
@@ -50,6 +51,9 @@ pub struct DebugUI {
 
     /// Execution log panel visibility
     pub(super) show_execution_log_panel: bool,
+
+    /// Execution control panel visibility
+    pub(super) show_execution_control_panel: bool,
 
     /// Disassembly address input
     pub(super) disasm_address: String,
@@ -105,6 +109,7 @@ impl DebugUI {
             show_ppu_panel: true,
             show_disassembly_panel: true,
             show_execution_log_panel: true,
+            show_execution_control_panel: true,
             disasm_address: String::from("8000"),
             disasm_count: 16,
             breakpoint_input: String::new(),
@@ -190,6 +195,10 @@ impl DebugUI {
         if self.show_execution_log_panel {
             log_panel::show(self, ctx, debugger);
         }
+
+        if self.show_execution_control_panel {
+            execution_control_panel::show(self, ctx, debugger, cpu, ppu);
+        }
     }
 
     /// Show the main menu bar
@@ -223,6 +232,7 @@ impl DebugUI {
                     ui.checkbox(&mut self.show_ppu_panel, "PPU Debugger");
                     ui.checkbox(&mut self.show_disassembly_panel, "Disassembly");
                     ui.checkbox(&mut self.show_execution_log_panel, "Execution Log");
+                    ui.checkbox(&mut self.show_execution_control_panel, "Execution Control");
                 });
 
                 // Status indicator
