@@ -253,8 +253,11 @@ fn render_cpu_memory_hex_dump(
         let addr = start.wrapping_add((row * bytes_per_row) as u16);
 
         ui.horizontal(|ui| {
-            // Address with highlighting for PC
-            if cpu.pc >= addr && cpu.pc < addr + bytes_per_row as u16 {
+            // Address with highlighting for PC (avoid u16 overflow)
+            let pc = cpu.pc as u32;
+            let row_start = addr as u32;
+            let row_end = row_start + bytes_per_row as u32; // exclusive
+            if pc >= row_start && pc < row_end {
                 ui.colored_label(egui::Color32::YELLOW, format!("${:04X}:", addr));
             } else {
                 ui.colored_label(egui::Color32::GRAY, format!("${:04X}:", addr));
