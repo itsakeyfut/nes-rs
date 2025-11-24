@@ -17,8 +17,11 @@
 // ```
 
 use crate::apu::Apu;
+use crate::cartridge::Mapper;
 use crate::input::ControllerIO;
 use crate::ppu::Ppu;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Trait for memory-mapped components
 ///
@@ -86,11 +89,12 @@ pub struct Bus {
     /// Note: $4017 is shared - writes go to APU, reads come from controller.
     controller_io: ControllerIO,
 
-    /// Temporary ROM storage for testing
+    /// Cartridge mapper
     ///
-    /// This will be replaced with proper cartridge/mapper implementation.
-    /// Covers $4020-$FFFF (approximately 48KB).
-    rom: [u8; 0xC000],
+    /// The mapper handles memory mapping for cartridge ROM/RAM.
+    /// Different mappers provide different banking and memory management capabilities.
+    /// Shared with PPU for CHR-ROM/RAM access.
+    mapper: Option<Rc<RefCell<Box<dyn Mapper>>>>,
 
     // ========================================
     // OAM DMA State
@@ -133,7 +137,7 @@ impl Bus {
             ppu: Ppu::new(),
             apu: Apu::new(),
             controller_io: ControllerIO::new(),
-            rom: [0; 0xC000],
+            mapper: None,
             dma_pending: false,
             dma_page: 0,
             dma_cycles: 0,
@@ -211,10 +215,8 @@ impl Bus {
             // Cartridge Space: $4020-$FFFF
             // This includes PRG-ROM, PRG-RAM, and mapper registers
             0x4020..=0xFFFF => {
-                // TODO: Route to cartridge/mapper when registered
-                let rom_addr = addr.wrapping_sub(0x4020) as usize;
-                if rom_addr < self.rom.len() {
-                    self.rom[rom_addr]
+                if let Some(mapper) = &self.mapper {
+                    mapper.borrow().cpu_read(addr)
                 } else {
                     0
                 }
@@ -307,35 +309,45 @@ impl Bus {
             // Cartridge Space: $4020-$FFFF
             // Writes here may trigger mapper functionality (e.g., bank switching)
             0x4020..=0xFFFF => {
-                // TODO: Route to cartridge/mapper when registered
-                // For now, allow writes to our temporary ROM array for testing
-                let rom_addr = addr.wrapping_sub(0x4020) as usize;
-                if rom_addr < self.rom.len() {
-                    self.rom[rom_addr] = data;
+                if let Some(mapper) = &self.mapper {
+                    mapper.borrow_mut().cpu_write(addr, data);
                 }
             }
         }
     }
 
-    /// Load ROM data into cartridge space
+    /// Set the cartridge mapper
     ///
-    /// This is a temporary helper method for testing. It will be replaced
-    /// with proper cartridge/mapper loading in the future.
+    /// This method sets the mapper for the bus and PPU, allowing the emulator to access
+    /// cartridge ROM/RAM through the mapper's memory mapping system.
+    /// The mapper is shared between the bus (for CPU access) and PPU (for CHR-ROM access).
     ///
     /// # Arguments
-    /// * `data` - Slice of bytes to load into ROM
-    /// * `offset` - Starting address offset (relative to $4020)
+    /// * `mapper` - The mapper instance to use for cartridge access
     ///
     /// # Example
-    /// ```
+    /// ```no_run
     /// use nes_rs::Bus;
+    /// use nes_rs::cartridge::Cartridge;
+    /// use nes_rs::cartridge::mappers::create_mapper;
+    ///
     /// let mut bus = Bus::new();
-    /// let rom_data = vec![0x4C, 0x00, 0x80]; // JMP $8000
-    /// bus.load_rom(&rom_data, 0x3FE0); // Load at $8000
+    /// let cartridge = Cartridge::from_ines_file("game.nes").unwrap();
+    /// let mapper = create_mapper(cartridge).unwrap();
+    /// bus.set_mapper(mapper);
     /// ```
-    pub fn load_rom(&mut self, data: &[u8], offset: usize) {
-        let end = (offset + data.len()).min(self.rom.len());
-        self.rom[offset..end].copy_from_slice(&data[..(end - offset)]);
+    pub fn set_mapper(&mut self, mapper: Box<dyn Mapper>) {
+        let mapper_rc = Rc::new(RefCell::new(mapper));
+        self.mapper = Some(mapper_rc.clone());
+        self.ppu.set_mapper(mapper_rc);
+    }
+
+    /// Get a reference to the current mapper
+    ///
+    /// # Returns
+    /// An optional reference to the shared mapper
+    pub fn mapper(&self) -> Option<&Rc<RefCell<Box<dyn Mapper>>>> {
+        self.mapper.as_ref()
     }
 
     /// Read a 16-bit word from the bus (little-endian)

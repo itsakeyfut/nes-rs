@@ -15,6 +15,7 @@ pub use save_state::{SaveState, SaveStateError};
 pub use screenshot::{save_screenshot, ScreenshotError};
 
 use crate::bus::Bus;
+use crate::cartridge::mappers::create_mapper;
 use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
 use std::path::{Path, PathBuf};
@@ -109,17 +110,13 @@ impl Emulator {
         let path = path.as_ref();
         let cartridge = Cartridge::from_ines_file(path)?;
 
-        // Load PRG-ROM data into bus
-        // Note: This is a temporary solution until the mapper system is implemented.
-        // The Bus currently uses a fixed ROM array instead of a proper cartridge interface.
-        if !cartridge.prg_rom.is_empty() {
-            // Load PRG-ROM starting at offset 0x3FE0 in the Bus ROM array
-            // (which maps to $8000 in CPU address space)
-            self.bus.load_rom(&cartridge.prg_rom, 0x3FE0);
-        }
+        // Create mapper from cartridge
+        let mapper = create_mapper(cartridge)?;
 
-        // Store the cartridge and path
-        self.cartridge = Some(cartridge);
+        // Set the mapper in the bus (which also sets it in the PPU)
+        self.bus.set_mapper(mapper);
+
+        // Store the ROM path
         self.rom_path = Some(path.to_path_buf());
 
         // Add to recent ROMs list
