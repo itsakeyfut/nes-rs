@@ -242,10 +242,8 @@ impl DebugUI {
                         debugger.pause();
                     }
 
-                    // Reset button (note: actual reset needs emulator access)
-                    if ui.button("🔄 Reset").clicked() {
-                        // This would need to be handled by the emulator
-                        // For now, just clear breakpoints as a placeholder
+                    // Clear breakpoints (placeholder until full CPU reset is wired)
+                    if ui.button("🧹 Clear Breakpoints").clicked() {
                         debugger.clear_breakpoints();
                     }
                 });
@@ -295,6 +293,7 @@ impl DebugUI {
                     let flags = [
                         ('N', 0x80, "Negative"),
                         ('V', 0x40, "Overflow"),
+                        ('-', 0x20, "Unused"),
                         ('B', 0x10, "Break"),
                         ('D', 0x08, "Decimal"),
                         ('I', 0x04, "Interrupt Disable"),
