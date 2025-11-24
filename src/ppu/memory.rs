@@ -92,7 +92,7 @@ impl Ppu {
     /// Read from PPU memory (VRAM)
     ///
     /// Handles reading from pattern tables (via cartridge), nametables, and palette RAM.
-    /// This is the internal memory read function used by PPUDATA.
+    /// This is the internal memory read function used by PPUDATA and debugging tools.
     ///
     /// # Arguments
     ///
@@ -101,7 +101,7 @@ impl Ppu {
     /// # Returns
     ///
     /// The byte value at the specified address
-    pub(super) fn read_ppu_memory(&self, addr: u16) -> u8 {
+    pub fn read_ppu_memory(&self, addr: u16) -> u8 {
         let addr = addr & 0x3FFF; // Mirror to 14-bit address space
 
         match addr {
