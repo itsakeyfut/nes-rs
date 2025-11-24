@@ -50,6 +50,15 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libudev-dev \
+            libxkbcommon-dev \
+            libx11-dev \
+            pkg-config
+
       - name: Generate coverage report
         run: cargo llvm-cov --no-default-features --workspace --lcov --output-path lcov.info
 
