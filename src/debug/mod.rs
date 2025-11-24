@@ -14,6 +14,7 @@ pub mod disassembler;
 pub mod logger;
 pub mod memory;
 pub mod ppu;
+pub mod ui;
 
 use crate::bus::Bus;
 use crate::cpu::Cpu;
@@ -27,6 +28,7 @@ pub use disassembler::{
 pub use logger::{LogLevel, Logger, TraceEntry};
 pub use memory::{MemoryRegion, MemoryViewer};
 pub use ppu::{PpuDebugger, PpuState, SpriteInfo};
+pub use ui::DebugUI;
 
 /// Main debugger interface
 ///

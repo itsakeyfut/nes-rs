@@ -23,9 +23,9 @@ pub use bus::{Bus, MemoryMappedDevice};
 pub use cartridge::{Cartridge, INesError, INesHeader, Mapper, Mirroring};
 pub use cpu::Cpu;
 pub use debug::{
-    disassemble_count, disassemble_instruction, disassemble_range, CpuDebugger, CpuState, Debugger,
-    DisassembledInstruction, LogLevel, Logger, MemoryRegion, MemoryViewer, PpuDebugger, PpuState,
-    SpriteInfo, TraceEntry,
+    disassemble_count, disassemble_instruction, disassemble_range, CpuDebugger, CpuState, DebugUI,
+    Debugger, DisassembledInstruction, LogLevel, Logger, MemoryRegion, MemoryViewer, PpuDebugger,
+    PpuState, SpriteInfo, TraceEntry,
 };
 pub use display::{FrameBuffer, WindowConfig};
 pub use emulator::{Emulator, EmulatorConfig, SaveState, SaveStateError, SpeedMode};
