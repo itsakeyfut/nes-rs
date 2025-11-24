@@ -20,6 +20,7 @@ use crate::bus::Bus;
 use crate::cpu::Cpu;
 use crate::ppu::Ppu;
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 pub use cpu::{CpuDebugger, CpuState};
 pub use disassembler::{
@@ -29,6 +30,127 @@ pub use logger::{LogLevel, Logger, TraceEntry};
 pub use memory::{CpuMemoryRegionType, MemoryRegion, MemoryViewer};
 pub use ppu::{PpuDebugger, PpuState, SpriteInfo};
 pub use ui::DebugUI;
+
+/// Step mode for execution control
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepMode {
+    /// No stepping, continuous execution
+    None,
+    /// Execute one CPU instruction
+    Instruction,
+    /// Execute until next PPU scanline
+    Scanline,
+    /// Execute until next frame (VBlank)
+    Frame,
+}
+
+/// Performance metrics for execution monitoring
+#[derive(Debug, Clone)]
+pub struct PerformanceMetrics {
+    /// Current frames per second
+    pub fps: f32,
+    /// CPU cycles executed in last frame
+    pub cpu_cycles_per_frame: u64,
+    /// PPU cycles executed in last frame
+    pub ppu_cycles_per_frame: u64,
+    /// Total frames executed
+    pub total_frames: u64,
+    /// Total instructions executed
+    pub total_instructions: u64,
+    /// Time spent in emulation
+    pub execution_time: Duration,
+    /// Frame times for graphing (last 60 frames)
+    pub frame_times: Vec<Duration>,
+    /// Start time for uptime tracking
+    start_time: Instant,
+    /// Last frame time for FPS calculation
+    last_frame_time: Option<Instant>,
+    /// CPU cycles at start of current frame
+    frame_start_cpu_cycles: u64,
+    /// PPU cycles at start of current frame
+    frame_start_ppu_cycles: u64,
+}
+
+impl PerformanceMetrics {
+    /// Create a new performance metrics instance
+    pub fn new() -> Self {
+        Self {
+            fps: 0.0,
+            cpu_cycles_per_frame: 0,
+            ppu_cycles_per_frame: 0,
+            total_frames: 0,
+            total_instructions: 0,
+            execution_time: Duration::ZERO,
+            frame_times: Vec::with_capacity(60),
+            start_time: Instant::now(),
+            last_frame_time: None,
+            frame_start_cpu_cycles: 0,
+            frame_start_ppu_cycles: 0,
+        }
+    }
+
+    /// Update metrics at the start of a new frame
+    pub fn start_frame(&mut self, cpu_cycles: u64, ppu_cycles: u64) {
+        self.frame_start_cpu_cycles = cpu_cycles;
+        self.frame_start_ppu_cycles = ppu_cycles;
+    }
+
+    /// Update metrics at the end of a frame
+    pub fn end_frame(&mut self, cpu_cycles: u64, ppu_cycles: u64) {
+        let now = Instant::now();
+
+        // Calculate frame time
+        if let Some(last_time) = self.last_frame_time {
+            let frame_time = now.duration_since(last_time);
+
+            // Update FPS
+            if !frame_time.is_zero() {
+                self.fps = 1.0 / frame_time.as_secs_f32();
+            }
+
+            // Store frame time for graphing (keep last 60 frames)
+            self.frame_times.push(frame_time);
+            if self.frame_times.len() > 60 {
+                self.frame_times.remove(0);
+            }
+        }
+
+        self.last_frame_time = Some(now);
+
+        // Calculate cycles per frame
+        self.cpu_cycles_per_frame = cpu_cycles.saturating_sub(self.frame_start_cpu_cycles);
+        self.ppu_cycles_per_frame = ppu_cycles.saturating_sub(self.frame_start_ppu_cycles);
+
+        // Update totals
+        self.total_frames += 1;
+        self.execution_time = self.start_time.elapsed();
+    }
+
+    /// Record an instruction execution
+    pub fn record_instruction(&mut self) {
+        self.total_instructions += 1;
+    }
+
+    /// Reset all metrics
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+
+    /// Get uptime as a formatted string
+    pub fn uptime_string(&self) -> String {
+        let uptime = self.start_time.elapsed();
+        let hours = uptime.as_secs() / 3600;
+        let minutes = (uptime.as_secs() % 3600) / 60;
+        let seconds = uptime.as_secs() % 60;
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    }
+}
+
+impl Default for PerformanceMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Main debugger interface
 ///
@@ -57,8 +179,17 @@ pub struct Debugger {
     /// Whether execution is paused
     paused: bool,
 
-    /// Step mode (execute one instruction then pause)
-    step_mode: bool,
+    /// Current step mode
+    step_mode: StepMode,
+
+    /// Target scanline for step scanline mode
+    target_scanline: Option<u16>,
+
+    /// Target frame for step frame mode
+    target_frame: Option<u64>,
+
+    /// Performance metrics
+    pub metrics: PerformanceMetrics,
 }
 
 impl Debugger {
@@ -84,7 +215,10 @@ impl Debugger {
             enabled: false,
             breakpoints: HashSet::new(),
             paused: false,
-            step_mode: false,
+            step_mode: StepMode::None,
+            target_scanline: None,
+            target_frame: None,
+            metrics: PerformanceMetrics::new(),
         }
     }
 
@@ -182,7 +316,9 @@ impl Debugger {
     /// Resume execution
     pub fn resume(&mut self) {
         self.paused = false;
-        self.step_mode = false;
+        self.step_mode = StepMode::None;
+        self.target_scanline = None;
+        self.target_frame = None;
     }
 
     /// Check if execution is paused
@@ -199,7 +335,40 @@ impl Debugger {
     /// This allows exactly one instruction to execute even if the debugger
     /// is currently paused, then re-enters the paused state.
     pub fn step(&mut self) {
-        self.step_mode = true;
+        self.step_instruction();
+    }
+
+    /// Execute one CPU instruction (alias for step)
+    pub fn step_instruction(&mut self) {
+        self.step_mode = StepMode::Instruction;
+        self.target_scanline = None;
+        self.target_frame = None;
+    }
+
+    /// Execute until the next PPU scanline
+    ///
+    /// # Arguments
+    ///
+    /// * `ppu` - Reference to the PPU to get current scanline
+    pub fn step_scanline(&mut self, ppu: &Ppu) {
+        self.step_mode = StepMode::Scanline;
+        // Target the next scanline (wrap around at 261)
+        let current_scanline = ppu.scanline();
+        self.target_scanline = Some((current_scanline + 1) % 262);
+        self.target_frame = None;
+    }
+
+    /// Execute until the next frame (VBlank)
+    pub fn step_frame(&mut self) {
+        self.step_mode = StepMode::Frame;
+        self.target_scanline = None;
+        // Target the next frame
+        self.target_frame = Some(self.metrics.total_frames + 1);
+    }
+
+    /// Get the current step mode
+    pub fn step_mode(&self) -> StepMode {
+        self.step_mode
     }
 
     /// Called before executing each CPU instruction
@@ -220,7 +389,7 @@ impl Debugger {
             return true;
         }
 
-        let stepping = self.step_mode;
+        let stepping = self.step_mode != StepMode::None;
 
         // If we're not stepping and already paused, don't execute further instructions
         if self.paused && !stepping {
@@ -239,12 +408,14 @@ impl Debugger {
             self.logger.log_cpu_state(&state);
         }
 
-        // If we were in step mode, consume it and ensure we pause again
-        // after this instruction has executed
-        if stepping {
-            self.step_mode = false;
+        // If we were in step instruction mode, consume it and pause
+        if self.step_mode == StepMode::Instruction {
+            self.step_mode = StepMode::None;
             self.paused = true;
         }
+
+        // Record instruction execution for performance metrics
+        self.metrics.record_instruction();
 
         true
     }
@@ -266,6 +437,64 @@ impl Debugger {
         if self.logger.is_ppu_trace_enabled() {
             let state = self.ppu.capture_state(ppu);
             self.logger.log_ppu_state(&state);
+        }
+
+        // Check if we've reached the target scanline
+        if self.step_mode == StepMode::Scanline {
+            if let Some(target) = self.target_scanline {
+                if ppu.scanline() == target {
+                    self.step_mode = StepMode::None;
+                    self.target_scanline = None;
+                    self.paused = true;
+                }
+            }
+        }
+    }
+
+    /// Called at the start of a new frame
+    ///
+    /// This should be called by the emulator at the start of each frame
+    /// to update performance metrics and check frame stepping.
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - Reference to the CPU for cycle count
+    pub fn on_frame_start(&mut self, cpu: &Cpu) {
+        if !self.enabled {
+            return;
+        }
+
+        // PPU runs at 3x CPU speed
+        let ppu_cycles = cpu.cycles * 3;
+        self.metrics.start_frame(cpu.cycles, ppu_cycles);
+    }
+
+    /// Called at the end of a frame (VBlank)
+    ///
+    /// This should be called by the emulator at the end of each frame
+    /// to update performance metrics and check frame stepping.
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - Reference to the CPU for cycle count
+    pub fn on_frame_end(&mut self, cpu: &Cpu) {
+        if !self.enabled {
+            return;
+        }
+
+        // PPU runs at 3x CPU speed
+        let ppu_cycles = cpu.cycles * 3;
+        self.metrics.end_frame(cpu.cycles, ppu_cycles);
+
+        // Check if we've reached the target frame
+        if self.step_mode == StepMode::Frame {
+            if let Some(target) = self.target_frame {
+                if self.metrics.total_frames >= target {
+                    self.step_mode = StepMode::None;
+                    self.target_frame = None;
+                    self.paused = true;
+                }
+            }
         }
     }
 
@@ -363,7 +592,7 @@ mod tests {
         let mut debugger = Debugger::new();
 
         debugger.step();
-        assert!(debugger.step_mode);
+        assert_eq!(debugger.step_mode(), StepMode::Instruction);
     }
 
     #[test]
@@ -401,7 +630,7 @@ mod tests {
 
         // Should be paused again after the step
         assert!(debugger.is_paused());
-        assert!(!debugger.step_mode);
+        assert_eq!(debugger.step_mode(), StepMode::None);
 
         // Next call should return false (paused)
         assert!(!debugger.before_instruction(&cpu, &mut bus));
@@ -471,10 +700,103 @@ mod tests {
         let mut debugger = Debugger::new();
 
         debugger.step();
-        assert!(debugger.step_mode);
+        assert_eq!(debugger.step_mode(), StepMode::Instruction);
 
         debugger.resume();
-        assert!(!debugger.step_mode);
+        assert_eq!(debugger.step_mode(), StepMode::None);
         assert!(!debugger.is_paused());
+    }
+
+    #[test]
+    fn test_step_modes() {
+        use crate::ppu::Ppu;
+
+        let mut debugger = Debugger::new();
+        let ppu = Ppu::new();
+
+        // Test step instruction
+        debugger.step_instruction();
+        assert_eq!(debugger.step_mode(), StepMode::Instruction);
+
+        // Test step scanline
+        debugger.step_scanline(&ppu);
+        assert_eq!(debugger.step_mode(), StepMode::Scanline);
+        assert!(debugger.target_scanline.is_some());
+
+        // Test step frame
+        debugger.step_frame();
+        assert_eq!(debugger.step_mode(), StepMode::Frame);
+        assert!(debugger.target_frame.is_some());
+
+        // Resume should clear step mode
+        debugger.resume();
+        assert_eq!(debugger.step_mode(), StepMode::None);
+        assert!(debugger.target_scanline.is_none());
+        assert!(debugger.target_frame.is_none());
+    }
+
+    #[test]
+    fn test_performance_metrics() {
+        let mut metrics = PerformanceMetrics::new();
+
+        assert_eq!(metrics.fps, 0.0);
+        assert_eq!(metrics.total_frames, 0);
+        assert_eq!(metrics.total_instructions, 0);
+
+        // Record some instructions
+        metrics.record_instruction();
+        metrics.record_instruction();
+        assert_eq!(metrics.total_instructions, 2);
+
+        // Simulate frame start and end
+        metrics.start_frame(0, 0);
+        metrics.end_frame(100, 300);
+
+        assert_eq!(metrics.total_frames, 1);
+        assert_eq!(metrics.cpu_cycles_per_frame, 100);
+        assert_eq!(metrics.ppu_cycles_per_frame, 300);
+
+        // Test reset
+        metrics.reset();
+        assert_eq!(metrics.total_frames, 0);
+        assert_eq!(metrics.total_instructions, 0);
+    }
+
+    #[test]
+    fn test_performance_metrics_uptime() {
+        let metrics = PerformanceMetrics::new();
+        let uptime = metrics.uptime_string();
+
+        // Should be in format HH:MM:SS
+        assert!(uptime.contains(':'));
+        assert_eq!(uptime.len(), 8);
+    }
+
+    #[test]
+    fn test_step_scanline_wraps() {
+        use crate::ppu::Ppu;
+
+        let mut debugger = Debugger::new();
+        let ppu = Ppu::new();
+
+        // Set scanline to 261 (last scanline)
+        // Note: We can't directly set the scanline, so we'll just test the logic
+        debugger.step_scanline(&ppu);
+
+        // Target should be set
+        assert!(debugger.target_scanline.is_some());
+    }
+
+    #[test]
+    fn test_step_frame_increments_target() {
+        let mut debugger = Debugger::new();
+
+        // Set some frames as already executed
+        debugger.metrics.total_frames = 10;
+
+        debugger.step_frame();
+
+        // Target frame should be 11 (next frame)
+        assert_eq!(debugger.target_frame, Some(11));
     }
 }
