@@ -14,6 +14,7 @@ use super::Debugger;
 use crate::bus::Bus;
 use crate::cpu::Cpu;
 use crate::ppu::Ppu;
+use log_panel::LogPanelState;
 
 /// Main debug UI structure
 ///
@@ -85,6 +86,8 @@ pub struct DebugUI {
     pub(super) search_results: Vec<u16>,
     /// Search result index
     pub(super) search_result_index: usize,
+    /// Log panel state
+    pub(super) log_panel_state: Option<LogPanelState>,
 }
 
 impl DebugUI {
@@ -123,6 +126,7 @@ impl DebugUI {
             search_pattern: String::new(),
             search_results: Vec::new(),
             search_result_index: 0,
+            log_panel_state: None,
         }
     }
 
