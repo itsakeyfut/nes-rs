@@ -7,3 +7,6 @@
 
 # My Private Documents
 docs/
+
+# Claude local settings
+.claude/settings.local.json
