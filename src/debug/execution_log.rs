@@ -113,12 +113,12 @@ impl ExecutionLogEntry {
                         .to_lowercase()
                         .contains(&query_lower)
             }
-            ExecutionLogEntry::MemoryRead { address, .. } => {
-                format!("{:04X}", address).contains(&query_lower)
-            }
-            ExecutionLogEntry::MemoryWrite { address, .. } => {
-                format!("{:04X}", address).contains(&query_lower)
-            }
+            ExecutionLogEntry::MemoryRead { address, .. } => format!("{:04X}", address)
+                .to_lowercase()
+                .contains(&query_lower),
+            ExecutionLogEntry::MemoryWrite { address, .. } => format!("{:04X}", address)
+                .to_lowercase()
+                .contains(&query_lower),
             ExecutionLogEntry::PpuEvent { event, .. } => {
                 format!("{}", event).to_lowercase().contains(&query_lower)
             }
@@ -753,6 +753,40 @@ mod tests {
         assert!(entry.matches_search("lda"));
         assert!(entry.matches_search("#$42"));
         assert!(!entry.matches_search("STA"));
+    }
+
+    #[test]
+    fn test_memory_address_search_case_insensitive() {
+        let mem_read = ExecutionLogEntry::MemoryRead {
+            cycle: 100,
+            address: 0x2A00,
+            value: 0x80,
+            pc: 0x8000,
+        };
+
+        let mem_write = ExecutionLogEntry::MemoryWrite {
+            cycle: 101,
+            address: 0xABCD,
+            value: 0x42,
+            pc: 0x8001,
+        };
+
+        // Test case-insensitive search for uppercase address
+        assert!(mem_read.matches_search("2A00"));
+        assert!(mem_read.matches_search("2a00"));
+        assert!(mem_read.matches_search("2A"));
+        assert!(mem_read.matches_search("2a"));
+
+        // Test case-insensitive search for mixed case address
+        assert!(mem_write.matches_search("ABCD"));
+        assert!(mem_write.matches_search("abcd"));
+        assert!(mem_write.matches_search("AbCd"));
+        assert!(mem_write.matches_search("BC"));
+        assert!(mem_write.matches_search("bc"));
+
+        // Test non-matching search
+        assert!(!mem_read.matches_search("3000"));
+        assert!(!mem_write.matches_search("1234"));
     }
 
     #[test]
