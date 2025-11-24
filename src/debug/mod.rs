@@ -26,7 +26,7 @@ pub use disassembler::{
     disassemble_count, disassemble_instruction, disassemble_range, DisassembledInstruction,
 };
 pub use logger::{LogLevel, Logger, TraceEntry};
-pub use memory::{MemoryRegion, MemoryViewer};
+pub use memory::{CpuMemoryRegionType, MemoryRegion, MemoryViewer};
 pub use ppu::{PpuDebugger, PpuState, SpriteInfo};
 pub use ui::DebugUI;
 

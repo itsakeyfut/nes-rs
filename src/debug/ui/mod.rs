@@ -51,12 +51,6 @@ pub struct DebugUI {
     /// Execution log panel visibility
     pub(super) show_execution_log_panel: bool,
 
-    /// Memory viewer address input
-    pub(super) memory_address: String,
-
-    /// Memory viewer byte count
-    pub(super) memory_bytes: usize,
-
     /// Disassembly address input
     pub(super) disasm_address: String,
 
@@ -65,6 +59,28 @@ pub struct DebugUI {
 
     /// Breakpoint address input
     pub(super) breakpoint_input: String,
+
+    // Memory panel state
+    /// Current selected memory viewer tab
+    pub(super) memory_tab: usize,
+    /// CPU memory viewer address
+    pub(super) cpu_mem_address: String,
+    /// CPU memory viewer byte count
+    pub(super) cpu_mem_bytes: usize,
+    /// Follow PC mode
+    pub(super) follow_pc: bool,
+    /// PPU VRAM viewer address
+    pub(super) ppu_mem_address: String,
+    /// PPU VRAM viewer byte count
+    pub(super) ppu_mem_bytes: usize,
+    /// PPU memory region selection
+    pub(super) ppu_mem_region: usize,
+    /// Search pattern input
+    pub(super) search_pattern: String,
+    /// Search results
+    pub(super) search_results: Vec<u16>,
+    /// Search result index
+    pub(super) search_result_index: usize,
 }
 
 impl DebugUI {
@@ -89,11 +105,19 @@ impl DebugUI {
             show_ppu_panel: true,
             show_disassembly_panel: true,
             show_execution_log_panel: true,
-            memory_address: String::from("0000"),
-            memory_bytes: 256,
             disasm_address: String::from("8000"),
             disasm_count: 16,
             breakpoint_input: String::new(),
+            memory_tab: 0,
+            cpu_mem_address: String::from("8000"),
+            cpu_mem_bytes: 256,
+            follow_pc: false,
+            ppu_mem_address: String::from("0"),
+            ppu_mem_bytes: 256,
+            ppu_mem_region: 0,
+            search_pattern: String::new(),
+            search_results: Vec::new(),
+            search_result_index: 0,
         }
     }
 
@@ -152,7 +176,7 @@ impl DebugUI {
         }
 
         if self.show_memory_panel {
-            memory_panel::show(self, ctx, debugger, bus);
+            memory_panel::show(self, ctx, debugger, bus, cpu, ppu);
         }
 
         if self.show_ppu_panel {
