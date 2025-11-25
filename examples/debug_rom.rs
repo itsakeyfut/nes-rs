@@ -4,7 +4,7 @@
 // debugging capabilities. It renders NES output and shows debug information
 // via terminal when stepping through instructions.
 //
-// Note: Due to wgpu version incompatibility between pixels (0.19) and egui-wgpu (27),
+// Note: Due to wgpu version incompatibility between pixels (0.15) and egui-wgpu (27),
 // the egui overlay is not rendered directly on the NES window. Debug information
 // is displayed in the terminal instead. For full egui integration, ensure
 // compatible versions of pixels and egui-wgpu are used.
@@ -128,7 +128,7 @@ impl DebugRomApp {
 
         // Load PRG-ROM into bus
         if !cartridge.prg_rom.is_empty() {
-            self.bus.load_rom(&cartridge.prg_rom, 0x3FE0);
+            self.bus.load_rom(&cartridge.prg_rom, 0x8000);
         }
 
         self.cartridge = Some(cartridge);
@@ -167,10 +167,10 @@ impl DebugRomApp {
 
         // Execute CPU instruction
         if self.debugger.before_instruction(&self.cpu, &mut self.bus) {
-            let _cycles = self.cpu.step(&mut self.bus);
+            let cycles = self.cpu.step(&mut self.bus);
 
             // Step PPU (3 PPU cycles per CPU cycle)
-            for _ in 0..3 {
+            for _ in 0..(cycles * 3) {
                 self.ppu.step();
                 self.debugger.after_ppu_step(&self.ppu);
             }
@@ -493,17 +493,6 @@ impl ApplicationHandler for DebugRomApp {
                     event_loop.exit();
                 }
                 self.handle_key(key, state == ElementState::Pressed);
-            }
-            WindowEvent::Resized(new_size) => {
-                if let Some(ref mut pixels) = self.pixels {
-                    if pixels
-                        .resize_surface(new_size.width, new_size.height)
-                        .is_err()
-                    {
-                        eprintln!("Failed to resize surface");
-                        event_loop.exit();
-                    }
-                }
             }
             WindowEvent::RedrawRequested => {
                 // Run emulation if not paused
