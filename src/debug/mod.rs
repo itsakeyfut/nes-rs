@@ -11,6 +11,7 @@
 
 pub mod cpu;
 pub mod disassembler;
+pub mod execution_log;
 pub mod logger;
 pub mod memory;
 pub mod ppu;
@@ -26,6 +27,7 @@ pub use cpu::{CpuDebugger, CpuState};
 pub use disassembler::{
     disassemble_count, disassemble_instruction, disassemble_range, DisassembledInstruction,
 };
+pub use execution_log::{ExecutionLog, ExecutionLogEntry, LogFilter, PpuEventType};
 pub use logger::{LogLevel, Logger, TraceEntry};
 pub use memory::{CpuMemoryRegionType, MemoryRegion, MemoryViewer};
 pub use ppu::{PpuDebugger, PpuState, SpriteInfo};
@@ -170,6 +172,9 @@ pub struct Debugger {
     /// Logger
     pub logger: Logger,
 
+    /// Execution log
+    pub execution_log: ExecutionLog,
+
     /// Whether debugging is enabled
     enabled: bool,
 
@@ -212,6 +217,7 @@ impl Debugger {
             memory: MemoryViewer::new(),
             ppu: PpuDebugger::new(),
             logger: Logger::new(),
+            execution_log: ExecutionLog::new(),
             enabled: false,
             breakpoints: HashSet::new(),
             paused: false,
@@ -408,6 +414,21 @@ impl Debugger {
             self.logger.log_cpu_state(&state);
         }
 
+        // Log instruction execution if enabled
+        if self.execution_log.is_instruction_logging_enabled() {
+            let instruction = disassemble_instruction(cpu.pc, bus);
+            self.execution_log.log_instruction(
+                cpu.cycles,
+                cpu.pc,
+                instruction,
+                cpu.a,
+                cpu.x,
+                cpu.y,
+                cpu.status,
+                cpu.sp,
+            );
+        }
+
         // If we were in step instruction mode, consume it and pause
         if self.step_mode == StepMode::Instruction {
             self.step_mode = StepMode::None;
@@ -496,6 +517,52 @@ impl Debugger {
                 }
             }
         }
+    }
+
+    /// Log a memory read access
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - Reference to the CPU for cycle count and PC
+    /// * `address` - Memory address being read
+    /// * `value` - Value read from memory
+    pub fn log_memory_read(&mut self, cpu: &Cpu, address: u16, value: u8) {
+        if !self.enabled {
+            return;
+        }
+
+        self.execution_log
+            .log_memory_read(cpu.cycles, address, value, cpu.pc);
+    }
+
+    /// Log a memory write access
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - Reference to the CPU for cycle count and PC
+    /// * `address` - Memory address being written
+    /// * `value` - Value written to memory
+    pub fn log_memory_write(&mut self, cpu: &Cpu, address: u16, value: u8) {
+        if !self.enabled {
+            return;
+        }
+
+        self.execution_log
+            .log_memory_write(cpu.cycles, address, value, cpu.pc);
+    }
+
+    /// Log a PPU event
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - Reference to the CPU for cycle count
+    /// * `event` - The PPU event to log
+    pub fn log_ppu_event(&mut self, cpu: &Cpu, event: PpuEventType) {
+        if !self.enabled {
+            return;
+        }
+
+        self.execution_log.log_ppu_event(cpu.cycles, event);
     }
 
     /// Get the current CPU state
