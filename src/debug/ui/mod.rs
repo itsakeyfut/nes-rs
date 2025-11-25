@@ -153,6 +153,66 @@ impl DebugUI {
         self.visible = !self.visible;
     }
 
+    /// Toggle CPU panel visibility
+    pub fn toggle_cpu_panel(&mut self) {
+        self.show_cpu_panel = !self.show_cpu_panel;
+    }
+
+    /// Toggle memory panel visibility
+    pub fn toggle_memory_panel(&mut self) {
+        self.show_memory_panel = !self.show_memory_panel;
+    }
+
+    /// Toggle PPU panel visibility
+    pub fn toggle_ppu_panel(&mut self) {
+        self.show_ppu_panel = !self.show_ppu_panel;
+    }
+
+    /// Toggle disassembly panel visibility
+    pub fn toggle_disassembly_panel(&mut self) {
+        self.show_disassembly_panel = !self.show_disassembly_panel;
+    }
+
+    /// Toggle execution log panel visibility
+    pub fn toggle_execution_log_panel(&mut self) {
+        self.show_execution_log_panel = !self.show_execution_log_panel;
+    }
+
+    /// Toggle execution control panel visibility
+    pub fn toggle_execution_control_panel(&mut self) {
+        self.show_execution_control_panel = !self.show_execution_control_panel;
+    }
+
+    /// Check if CPU panel is visible
+    pub fn is_cpu_panel_visible(&self) -> bool {
+        self.show_cpu_panel
+    }
+
+    /// Check if memory panel is visible
+    pub fn is_memory_panel_visible(&self) -> bool {
+        self.show_memory_panel
+    }
+
+    /// Check if PPU panel is visible
+    pub fn is_ppu_panel_visible(&self) -> bool {
+        self.show_ppu_panel
+    }
+
+    /// Check if disassembly panel is visible
+    pub fn is_disassembly_panel_visible(&self) -> bool {
+        self.show_disassembly_panel
+    }
+
+    /// Check if execution log panel is visible
+    pub fn is_execution_log_panel_visible(&self) -> bool {
+        self.show_execution_log_panel
+    }
+
+    /// Check if execution control panel is visible
+    pub fn is_execution_control_panel_visible(&self) -> bool {
+        self.show_execution_control_panel
+    }
+
     /// Render the debug UI
     ///
     /// This should be called from the egui render loop to display all debug panels.
